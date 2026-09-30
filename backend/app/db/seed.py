@@ -21,6 +21,7 @@ SeedFunction = Callable[[AsyncSession], Awaitable[None]]
 
 ROLE_DEFINITIONS = {
     "TCG_ADMIN": "TCG Admin",
+    "TCG_LEGAL": "TCG Legal",
     "TCG_SALES": "TCG Sales",
     "PARTNER_ADMIN": "Partner Admin",
     "PARTNER_SALES": "Partner Sales",
@@ -29,6 +30,7 @@ ROLE_DEFINITIONS = {
 }
 
 PERMISSION_DEFINITIONS = {
+    "onboarding.review": "Review assigned partner onboarding applications",
     "platform.manage": "Manage platform configuration and identity",
     "partners.manage": "Create, review, and manage partners",
     "partners.view": "View authorized partner data",
@@ -104,6 +106,7 @@ async def seed_identity(session: AsyncSession) -> None:
         roles[code] = role
 
     await session.flush()
+    roles["TCG_LEGAL"].permissions = [permissions["onboarding.review"]]
     roles["TCG_ADMIN"].permissions = list(permissions.values())
     roles["TCG_SALES"].permissions = [
         permissions["partners.view"],
@@ -164,6 +167,7 @@ async def seed_partner_master_data(session: AsyncSession) -> None:
             session.add(role)
         roles[code] = role
     await session.flush()
+    roles["TCG_LEGAL"].permissions = [permissions["onboarding.review"]]
     roles["TCG_ADMIN"].permissions = list(permissions.values())
     roles["TCG_SALES"].permissions = [
         permissions["partners.view"],
@@ -283,6 +287,7 @@ async def seed_mcube_display_name(session: AsyncSession) -> None:
 
 
 SEEDS: tuple[tuple[str, SeedFunction], ...] = (
+    ("onboarding-legal-role-v1", seed_partner_master_data),
     ("foundation-identity-v1", seed_identity),
     ("phase-1a-partner-master-data-v1", seed_partner_master_data),
     ("phase-1b-product-pricing-v1", seed_product_pricing),

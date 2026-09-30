@@ -1,3 +1,6 @@
+import { apiConfig } from "./config";
+import { clearAccessToken, getAccessToken } from "../features/auth/session";
+
 export interface DependencyStatus {
   status: "ok" | "error";
   detail: string | null;
@@ -142,7 +145,22 @@ export interface PartnerPricing {
   items: ResolvedPrice[];
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+async function fetchApi(path: string, init: RequestInit = {}) {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (init.signal?.aborted) cancel();
+  init.signal?.addEventListener("abort", cancel, { once: true });
+  const timer = setTimeout(cancel, apiConfig.requestTimeoutMs);
+  try {
+    return await fetch(apiConfig.apiBaseUrl.replace(/\/+$/, "") + path, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (init.signal?.aborted) throw error;
+    throw new ApiError(controller.signal.aborted ? "The request timed out. Please try again." : "Unable to reach the portal. Check your connection and try again.", 0);
+  } finally {
+    clearTimeout(timer);
+    init.signal?.removeEventListener("abort", cancel);
+  }
+}
 
 export class ApiError extends Error {
   constructor(
@@ -155,9 +173,9 @@ export class ApiError extends Error {
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem("partner_portal_token");
+  const token = getAccessToken();
   const isFormData = init?.body instanceof FormData;
-  const response = await fetch(`${API_BASE_URL}/api/v1${path}`, {
+  const response = await fetchApi(path, {
     ...init,
     headers: {
       Accept: "application/json",
@@ -167,6 +185,8 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
     },
   });
   if (!response.ok) {
+    const authorization = new Headers(init?.headers).get("Authorization") ?? (token ? `Bearer ${token}` : null);
+    if (response.status === 401 && token && authorization === `Bearer ${token}`) clearAccessToken(token);
     const body = (await response.json().catch(() => null)) as
       | { error?: { message?: string; request_id?: string } }
       | null;
@@ -182,22 +202,23 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 
 export async function login(email: string, password: string): Promise<string> {
   const body = new URLSearchParams({ username: email, password });
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/token`, {
+  const response = await fetchApi("/auth/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
-  const payload = (await response.json()) as
+  const payload = (await response.json().catch(() => null)) as
     | { access_token: string }
-    | { error?: { message?: string; request_id?: string } };
-  if (!response.ok || !("access_token" in payload)) {
-    const error = "error" in payload ? payload.error : undefined;
+    | { error?: { message?: string; request_id?: string } }
+    | null;
+  if (!response.ok || !payload || !("access_token" in payload) || typeof payload.access_token !== "string" || !payload.access_token) {
+    const error = payload && "error" in payload ? payload.error : undefined;
     throw new ApiError(error?.message ?? "Sign in failed", response.status, error?.request_id);
   }
   return payload.access_token;
 }
 
-export const getCurrentUser = () => apiRequest<CurrentUser>("/auth/me");
+export const getCurrentUser = (token?: string) => apiRequest<CurrentUser>("/auth/me", token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
 export const getRegistrationOptions = () =>
   apiRequest<RegistrationOptions>("/partners/registration-options");
 export const registerPartner = (body: unknown) =>
@@ -314,7 +335,7 @@ export const changeOrderStatus = (id: string, status: string, reason?: string) =
 export const uploadOrderAttachment = (id: string, body: FormData) => apiRequest(`/orders/${id}/attachments`, { method: "POST", body });
 
 export function getReadiness(): Promise<ReadyResponse> {
-  return fetch(`${API_BASE_URL}/api/v1/health/ready`, {
+  return fetchApi("/health/ready", {
     headers: { Accept: "application/json" },
   }).then(async (response) => {
     const body = (await response.json()) as ReadyResponse;

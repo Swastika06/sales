@@ -18,6 +18,7 @@ from app.domain.access import (
     role_codes,
 )
 from app.models.identity import Role, User
+from app.models.onboarding import OnboardingApplication
 from app.models.partner import Country, Partner, PartnerStatus, PartnerType
 from app.schemas.partner import (
     AdminPartnerCreate,
@@ -34,6 +35,7 @@ from app.schemas.partner import (
     PartnerUserUpdate,
     RegistrationOptions,
 )
+from app.services import onboarding as onboarding_flow
 from app.services.audit import record_audit_event
 from app.services.partners import (
     create_partner,
@@ -111,6 +113,10 @@ async def self_register(
     request: Request,
     session: AsyncSession = Depends(get_db),
 ) -> PartnerRead:
+    if onboarding_flow.needs_documents(payload.capability_codes):
+        raise HTTPException(
+            409, "Use the onboarding form to upload documents and submit for legal review"
+        )
     partner, user = await create_partner(session, payload, created_by=None, activate=False)
     await record_audit_event(
         session,
@@ -132,7 +138,18 @@ async def admin_create_partner(
     session: AsyncSession = Depends(get_db),
 ) -> PartnerRead:
     require_tcg_admin(user)
-    partner, primary_user = await create_partner(session, payload, created_by=user, activate=True)
+    requires_review = onboarding_flow.needs_documents(payload.capability_codes)
+    partner, primary_user = await create_partner(
+        session, payload, created_by=user, activate=not requires_review
+    )
+    if requires_review:
+        application = await onboarding_flow.create_application(session, partner, primary_user)
+        await onboarding_flow.queue_mail(
+            session,
+            application,
+            "DRAFT",
+            "Please upload your company documents and submit your partner application for review.",
+        )
     await record_audit_event(
         session,
         action="PARTNER_CREATED",
@@ -215,6 +232,34 @@ async def update_partner(
     require_partner_management(user, partner_id)
     partner = await load_partner(session, partner_id)
     changes = payload.model_dump(exclude_unset=True)
+    application = await session.scalar(
+        select(OnboardingApplication)
+        .where(OnboardingApplication.partner_id == partner.id)
+        .with_for_update()
+    )
+    if application and application.status not in {"DRAFT", "CHANGES_REQUESTED", "COMPLETED"}:
+        raise HTTPException(409, "The application is locked during review")
+    if (
+        application
+        and "primary_contact_email" in changes
+        and (str(changes["primary_contact_email"]).lower() != partner.primary_contact_email.lower())
+    ):
+        raise HTTPException(409, "The applicant email cannot be changed through profile editing")
+    new_codes = changes.get("capability_codes") or (
+        [changes["partner_type_code"]] if changes.get("partner_type_code") else []
+    )
+    if onboarding_flow.needs_documents(new_codes) and not application:
+        raise HTTPException(
+            409, "Start document review before adding Reseller or Referral capabilities"
+        )
+    if (
+        application
+        and application.status == "COMPLETED"
+        and (new_codes and set(new_codes) != {c.code for c in partner.capabilities})
+    ):
+        raise HTTPException(
+            409, "Start a new document review before changing verified capabilities"
+        )
     controlled = {"partner_type_code", "capability_codes"}
     if not is_tcg_admin(user) and controlled & changes.keys():
         raise HTTPException(status_code=403, detail="Only TCG Admin can change capabilities")
@@ -267,6 +312,11 @@ async def approve_partner(
 ) -> PartnerRead:
     require_tcg_admin(user)
     partner = await load_partner(session, partner_id)
+    await onboarding_flow.activation_guard(session, partner.id)
+    if onboarding_flow.needs_documents([c.code for c in partner.capabilities]):
+        raise HTTPException(
+            409, "Use document review and email verification to activate this partner"
+        )
     if partner.status != PartnerStatus.PENDING_APPROVAL:
         raise HTTPException(status_code=409, detail="Only pending partners can be approved")
     partner.status = PartnerStatus.ACTIVE
@@ -304,6 +354,7 @@ async def reject_partner(
 ) -> PartnerRead:
     require_tcg_admin(user)
     partner = await load_partner(session, partner_id)
+    await onboarding_flow.activation_guard(session, partner.id)
     if partner.status != PartnerStatus.PENDING_APPROVAL:
         raise HTTPException(status_code=409, detail="Only pending partners can be rejected")
     partner.status = PartnerStatus.REJECTED
@@ -343,6 +394,8 @@ async def update_partner_status(
     partner = await load_partner(session, partner_id)
     if partner.status in {PartnerStatus.PENDING_APPROVAL, PartnerStatus.REJECTED}:
         raise HTTPException(status_code=409, detail="Use the approval workflow for this partner")
+    if payload.status == PartnerStatus.ACTIVE:
+        await onboarding_flow.activation_guard(session, partner.id)
     old_status = partner.status
     partner.status = payload.status
     for partner_user in partner.users:

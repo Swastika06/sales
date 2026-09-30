@@ -1,4 +1,7 @@
-from app.models import commercial  # noqa: F401
+from app.models import (
+    commercial,  # noqa: F401
+    onboarding,  # noqa: F401
+)
 from app.models.audit import AuditLog
 from app.models.content import Document, DocumentCategory, DocumentVersion, DocumentVisibility
 from app.models.identity import Permission, Role, User, role_permissions, user_roles

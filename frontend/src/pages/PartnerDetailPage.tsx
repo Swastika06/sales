@@ -11,6 +11,7 @@ import {
   updatePartner,
   type PartnerStatus,
 } from "../api/client";
+import { onboardingRequest } from "../features/onboarding/api";
 import { useAuth } from "../features/auth/AuthContext";
 
 export function PartnerDetailPage() {
@@ -21,6 +22,7 @@ export function PartnerDetailPage() {
   const options = useQuery({ queryKey: ["registration-options"], queryFn: getRegistrationOptions });
   const isAdmin = user?.roles.includes("TCG_ADMIN") || user?.is_superuser;
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["partner", partnerId] });
+  const startReview = useMutation({ mutationFn: () => onboardingRequest("/partners/" + partnerId + "/start", undefined, {}), onSuccess: refresh });
   const approve = useMutation({ mutationFn: () => approvePartner(partnerId), onSuccess: refresh });
   const reject = useMutation({ mutationFn: (reason: string) => rejectPartner(partnerId, reason), onSuccess: refresh });
   const statusMutation = useMutation({ mutationFn: (value: PartnerStatus) => changePartnerStatus(partnerId, value), onSuccess: refresh });
@@ -29,6 +31,7 @@ export function PartnerDetailPage() {
   if (partner.isLoading) return <div className="page-loader">Loading partner…</div>;
   if (!partner.data) return <div className="workspace-page"><div className="form-alert form-alert--error">Partner could not be loaded.</div></div>;
   const value = partner.data;
+  const requiresReview = value.capabilities.some(c => ["RESELLER", "REFERRAL"].includes(c.code));
   const canEdit = Boolean(isAdmin || (user?.partner_id === partnerId && user.roles.includes("PARTNER_ADMIN")));
 
   function approveRegistration() { approve.mutate(); }
@@ -62,8 +65,13 @@ export function PartnerDetailPage() {
 
       {(approve.error || update.error || statusMutation.error || reject.error) && <p role="alert" className="form-alert form-alert--error">{(approve.error || update.error || statusMutation.error || reject.error)?.message}</p>}
       {value.rejection_reason && <div className="form-alert form-alert--error"><strong>Rejection reason:</strong> {value.rejection_reason}</div>}
+      {startReview.error && <p role="alert">{startReview.error.message}</p>}
       {isAdmin && <section className="action-bar">
-        {value.status === "PENDING_APPROVAL" && <><button type="button" onClick={approveRegistration}>Approve</button><button className="button-danger" type="button" onClick={rejectRegistration}>Reject</button></>}
+        <Link className="button-link" to="/onboarding-review">Open onboarding review</Link>
+        <button type="button" disabled={startReview.isPending} onClick={() => {
+          if (value.status !== "ACTIVE" || window.confirm("Start a new legal review? Partner access will be paused until documents and email are verified again.")) startReview.mutate();
+        }}>{value.status === "ACTIVE" ? "Start a new legal review" : "Request document submission"}</button>
+        {value.status === "PENDING_APPROVAL" && !requiresReview && <><button type="button" onClick={approveRegistration}>Approve</button><button className="button-danger" type="button" onClick={rejectRegistration}>Reject</button></>}
         {value.status === "ACTIVE" && <button className="button-secondary" type="button" onClick={() => statusMutation.mutate("SUSPENDED")}>Suspend access</button>}
         {(value.status === "SUSPENDED" || value.status === "INACTIVE") && <button type="button" onClick={() => statusMutation.mutate("ACTIVE")}>Reactivate</button>}
       </section>}

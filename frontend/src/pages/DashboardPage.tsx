@@ -1,14 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { commercial, dollars } from "../features/commercial/types";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 
 import { useAuth } from "../features/auth/AuthContext";
 
 export function DashboardPage() {
   const { user } = useAuth();
-  const internal = Boolean(user?.is_superuser || user?.roles.some(r => r.startsWith("TCG_")));
+  const internal = Boolean(user?.is_superuser || user?.roles.some(r => ["TCG_ADMIN", "TCG_SALES"].includes(r)));
   const summary = useQuery({ queryKey: ["commercial", "summary"], queryFn: () => commercial<{ basis: string; opportunities: number; totals: Record<string, string>; undisclosed: Record<string, number> }>("/summary"), enabled: internal });
   const isTcgAdmin = user?.roles.includes("TCG_ADMIN");
+  if (user?.roles.includes("TCG_LEGAL") && !internal) return <Navigate to="/onboarding-review" replace />;
   return (
     <div className="workspace-page">
       <header className="page-heading">

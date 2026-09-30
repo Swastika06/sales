@@ -13,6 +13,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  if (auth.isLoading) return <div className="page-loader" role="status">Loading your workspace...</div>;
   if (auth.isAuthenticated) return <Navigate to="/dashboard" replace />;
 
   async function submit(event: FormEvent) {
@@ -39,10 +40,11 @@ export function LoginPage() {
       </section>
       <form className="auth-card" onSubmit={(event) => void submit(event)}>
         <div><span className="status-kicker">Welcome back</span><h2>Sign in</h2></div>
-        {error && <div className="form-alert form-alert--error">{error}</div>}
+        {error && <div className="form-alert form-alert--error" role="alert">{error}</div>}
         <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="username" /></label>
         <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" /></label>
         <button type="submit" disabled={submitting}>{submitting ? "Signing in…" : "Sign in"}</button>
+        <p className="form-footnote"><Link to="/onboarding">Track application or activate account</Link></p>
         <p className="form-footnote">New partner? <Link to="/register">Register your company</Link></p>
       </form>
     </div>

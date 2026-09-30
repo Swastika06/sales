@@ -1,9 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 
 import { getCurrentUser, login as requestLogin, type CurrentUser } from "../../api/client";
-
-const TOKEN_KEY = "partner_portal_token";
+import { clearAccessToken, getAccessToken, saveAccessToken, subscribeSession } from "./session";
 
 interface AuthContextValue {
   user: CurrentUser | null;
@@ -17,29 +16,33 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY));
+  const subscribe = useCallback((listener: () => void) => subscribeSession(() => {
+    queryClient.clear();
+    listener();
+  }), [queryClient]);
+  const token = useSyncExternalStore(subscribe, getAccessToken, () => null);
   const userQuery = useQuery({
     queryKey: ["current-user", token],
-    queryFn: getCurrentUser,
+    queryFn: () => getCurrentUser(),
     enabled: Boolean(token),
     retry: false,
   });
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      user: userQuery.data ?? null,
+      user: token ? userQuery.data ?? null : null,
       isLoading: Boolean(token) && userQuery.isLoading,
       isAuthenticated: Boolean(token && userQuery.data),
       login: async (email: string, password: string) => {
         const accessToken = await requestLogin(email, password);
+        // Verify the user before considering sign-in complete or saving the session.
+        const user = await getCurrentUser(accessToken);
         queryClient.clear();
-        localStorage.setItem(TOKEN_KEY, accessToken);
-        setToken(accessToken);
-        await queryClient.invalidateQueries({ queryKey: ["current-user"] });
+        saveAccessToken(accessToken);
+        queryClient.setQueryData(["current-user", accessToken], user);
       },
       logout: () => {
-        localStorage.removeItem(TOKEN_KEY);
-        setToken(null);
+        clearAccessToken();
         queryClient.clear();
       },
     }),

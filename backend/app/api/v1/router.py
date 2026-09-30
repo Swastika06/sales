@@ -6,6 +6,7 @@ from app.api.v1.endpoints import (
     deals,
     documents,
     health,
+    onboarding,
     operations,
     partners,
     pricing,
@@ -14,6 +15,7 @@ from app.api.v1.endpoints import (
 )
 
 api_router = APIRouter()
+api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["authentication"])
 api_router.include_router(partners.router, prefix="/partners", tags=["partners"])

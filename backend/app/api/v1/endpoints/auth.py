@@ -53,6 +53,14 @@ async def issue_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if user.partner_id:
+        from app.models.partner import Partner, PartnerStatus
+        from app.services.onboarding import activation_guard
+        partner = await session.get(Partner, user.partner_id)
+        if partner is None or partner.status != PartnerStatus.ACTIVE:
+            raise HTTPException(401, "Your account is not active")
+        await activation_guard(session, user.partner_id)
+
     await record_audit_event(
         session,
         action="USER_LOGIN",

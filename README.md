@@ -83,3 +83,11 @@ The [commercial verification guide](docs/Commercial-Implementation.md#verificati
 ## API conventions
 
 Routes use `/api/v1`, UUID identifiers, UTC timestamps, ISO dates and USD decimal amounts. Protected requests use the bearer token issued by `POST /api/v1/auth/token`. Errors use an `error` object containing `code`, `message`, `details` and `request_id`; `X-Request-ID` is accepted and returned. OpenAPI is available at `/openapi.json`.
+
+## Partner onboarding
+
+See [the onboarding setup guide](docs/onboarding.md) for company-document uploads, admin routing, legal review, SMTP configuration, and OTP activation.
+
+## Standalone ezextend workspace
+
+[react-design.jsx](frontend/ezextend/react-design.jsx) now includes the local sign-in flow and the full authenticated workspace. Configure `apiBaseUrl`; `workspaceUrl` is no longer used. See [ezextend setup and synchronization](docs/ezextend.md).

@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     MINIO_SECURE: bool = False
     MINIO_BUCKET: str = "partner-portal"
 
+    PUBLIC_PORTAL_URL: str = "http://localhost:5173"
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "partners@tcgdigital.com"
+    SMTP_STARTTLS: bool = True
+    SMTP_SSL: bool = False
+    CLAMAV_HOST: str = ""
+    CLAMAV_PORT: int = 3310
+
     JWT_SECRET_KEY: str = Field(
         default="change-me-to-a-long-random-secret-before-use", min_length=32
     )
@@ -45,8 +56,15 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     def assert_safe_for_production(self) -> None:
-        if self.APP_ENV == "production" and self.JWT_SECRET_KEY.startswith("change-me"):
-            raise ValueError("JWT_SECRET_KEY must be replaced in production")
+        if self.APP_ENV == "production":
+            if self.JWT_SECRET_KEY.startswith("change-me"):
+                raise ValueError("JWT_SECRET_KEY must be replaced in production")
+            if not self.PUBLIC_PORTAL_URL.startswith("https://"):
+                raise ValueError("PUBLIC_PORTAL_URL must use HTTPS in production")
+            if not self.SMTP_HOST or not (self.SMTP_STARTTLS or self.SMTP_SSL):
+                raise ValueError("Configure an SMTP host with TLS for production onboarding")
+            if not self.CLAMAV_HOST:
+                raise ValueError("Configure CLAMAV_HOST for production document scanning")
 
 
 @lru_cache

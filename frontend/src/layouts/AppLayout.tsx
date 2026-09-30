@@ -4,7 +4,9 @@ import { useAuth } from "../features/auth/AuthContext";
 
 export function AppLayout() {
   const { user, logout } = useAuth();
-  const isTcg = user?.roles.some((role) => role.startsWith("TCG_"));
+  const isTcg = user?.is_superuser || user?.roles.some(role => ["TCG_ADMIN", "TCG_SALES"].includes(role));
+  const canReview = user?.is_superuser || user?.roles.some(role => ["TCG_ADMIN", "TCG_LEGAL"].includes(role));
+  const legalOnly = user?.roles.includes("TCG_LEGAL") && !isTcg;
 
   return (
     <div className="workspace">
@@ -14,7 +16,8 @@ export function AppLayout() {
           <span><strong>TCG Digital</strong><small>Partner Portal</small></span>
         </NavLink>
         <nav aria-label="Primary navigation">
-          <NavLink to="/dashboard">Overview</NavLink>
+          {canReview && <NavLink to="/onboarding-review">Onboarding review</NavLink>}
+          {!legalOnly && <><NavLink to="/dashboard">Overview</NavLink>
           <NavLink to={isTcg ? "/partners" : `/partners/${user?.partner_id ?? ""}`}>
             {isTcg ? "Partners" : "Company profile"}
           </NavLink>
@@ -25,7 +28,7 @@ export function AppLayout() {
           <NavLink to="/deals">Deals & pipeline</NavLink>
           <NavLink to="/commercial-model">{isTcg ? "Commercial model" : "My commissions"}</NavLink>
           <NavLink to="/commercial">Quote to order</NavLink>
-          <NavLink to="/system">System status</NavLink>
+          <NavLink to="/system">System status</NavLink></>}
         </nav>
         <div className="sidebar-user">
           <span className="avatar">{user?.full_name.charAt(0).toUpperCase()}</span>

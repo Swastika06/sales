@@ -360,3 +360,15 @@ td strong, td small { display: block; } td small { margin-top: 3px; color: var(-
 .commercial-workspace .commercial-row .button-quiet { color:#14624f; }
 @media (max-width:1100px) { .commercial-workspace .commercial-totals { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:480px) { .commercial-workspace .commercial-totals { grid-template-columns:1fr; } }
+
+/* Keep workspace sign-out accessible at tablet and phone widths. */
+@media (max-width: 900px) {
+  .sidebar-user .button-quiet { font-size: 12px; }
+}
+@media (max-width: 640px) {
+  .sidebar-user { display: flex; justify-content: space-between; margin-top: 14px; padding-top: 12px; }
+  .sidebar-user > span:not(.avatar) { flex: 1; min-width: 0; }
+  .sidebar-user strong { font-size: 13px; }
+  .sidebar-user small { font-size: 10px; }
+  .sidebar-user .button-quiet { flex-shrink: 0; }
+}

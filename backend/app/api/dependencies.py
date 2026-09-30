@@ -39,6 +39,14 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
         raise credentials_error
+    if user.partner_id:
+        from app.models.partner import Partner, PartnerStatus
+        from app.services.onboarding import activation_guard
+
+        partner = await session.get(Partner, user.partner_id)
+        if partner is None or partner.status != PartnerStatus.ACTIVE:
+            raise credentials_error
+        await activation_guard(session, user.partner_id)
     return user
 
 

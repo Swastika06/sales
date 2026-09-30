@@ -1,3 +1,4 @@
+import { TCG_LOGO_DATA_URI } from "./brand";
 import type { CSSProperties } from "react";
 
 const paths: Record<string, string> = {
@@ -24,7 +25,7 @@ const paths: Record<string, string> = {
 export function Icon({ name = "arrow", size = 20, style }: { name?: string; size?: number; style?: CSSProperties }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}><path d={paths[name] ?? paths.arrow} /></svg>;
 }
-export function TcgMark() {
-  return <svg className="tcg-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M7 30V10h25M14 30V17h18M21 30V24h11" stroke="currentColor" strokeWidth="4.5" /></svg>;
+export function TcgLogo() {
+  return <img className="p-brand-logo" src={TCG_LOGO_DATA_URI} alt="TCG Digital" width="160" height="33" />;
 }
 
