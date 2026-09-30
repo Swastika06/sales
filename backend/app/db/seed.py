@@ -1,7 +1,5 @@
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import date
-from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,14 +9,11 @@ from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import SessionLocal, close_db
 from app.models.identity import Permission, Role, User
-from app.models.partner import Country, PartnerTier, PartnerType
+from app.models.partner import Country, PartnerType
 from app.models.pricing import (
-    AdjustmentType,
-    PartnerCommercialTerm,
     Product,
     Sku,
     SkuCategory,
-    TierPricingAdjustment,
 )
 from app.models.seed import SeedRecord
 
@@ -56,11 +51,6 @@ PARTNER_TYPE_DEFINITIONS = {
     "SYSTEM_INTEGRATOR": ("System Integrator", "Implements and integrates TCG products"),
 }
 
-PARTNER_TIER_DEFINITIONS = {
-    "SILVER": ("Silver", 1),
-    "GOLD": ("Gold", 2),
-    "PLATINUM": ("Platinum", 3),
-}
 
 COUNTRY_DEFINITIONS = {
     "AU": "Australia",
@@ -214,13 +204,6 @@ async def seed_partner_master_data(session: AsyncSession) -> None:
         else:
             value.name, value.description, value.is_active = name, description, True
 
-    for code, (name, rank) in PARTNER_TIER_DEFINITIONS.items():
-        value = await session.scalar(select(PartnerTier).where(PartnerTier.code == code))
-        if value is None:
-            session.add(PartnerTier(code=code, name=name, rank=rank))
-        else:
-            value.name, value.rank, value.is_active = name, rank, True
-
     for code, name in COUNTRY_DEFINITIONS.items():
         value = await session.scalar(select(Country).where(Country.code == code))
         if value is None:
@@ -278,54 +261,6 @@ async def seed_product_pricing(session: AsyncSession) -> None:
                     True,
                 )
 
-    effective_from = date(2026, 1, 1)
-    rule_definitions = {
-        "RESELLER": (AdjustmentType.PERCENT_DISCOUNT, Decimal("20")),
-        "REFERRAL": (AdjustmentType.REFERRAL_COMMISSION, Decimal("3")),
-        "SYSTEM_INTEGRATOR": (AdjustmentType.PERCENT_MARKUP, Decimal("15")),
-    }
-    for type_code, (adjustment_type, percentage) in rule_definitions.items():
-        partner_type = await session.scalar(
-            select(PartnerType).where(PartnerType.code == type_code)
-        )
-        if partner_type is None:
-            continue
-        term = await session.scalar(
-            select(PartnerCommercialTerm).where(
-                PartnerCommercialTerm.partner_type_id == partner_type.id,
-                PartnerCommercialTerm.effective_from == effective_from,
-            )
-        )
-        if term is None:
-            session.add(
-                PartnerCommercialTerm(
-                    partner_type_id=partner_type.id,
-                    adjustment_type=adjustment_type,
-                    percentage=percentage,
-                    effective_from=effective_from,
-                )
-            )
-
-    tier_definitions = {"SILVER": Decimal("0"), "GOLD": Decimal("5"), "PLATINUM": Decimal("10")}
-    for tier_code, percentage in tier_definitions.items():
-        tier = await session.scalar(select(PartnerTier).where(PartnerTier.code == tier_code))
-        if tier is None:
-            continue
-        adjustment = await session.scalar(
-            select(TierPricingAdjustment).where(
-                TierPricingAdjustment.tier_id == tier.id,
-                TierPricingAdjustment.effective_from == effective_from,
-            )
-        )
-        if adjustment is None:
-            session.add(
-                TierPricingAdjustment(
-                    tier_id=tier.id,
-                    discount_percentage=percentage,
-                    effective_from=effective_from,
-                )
-            )
-
 
 async def seed_mcube_display_name(session: AsyncSession) -> None:
     product = await session.scalar(
@@ -333,6 +268,9 @@ async def seed_mcube_display_name(session: AsyncSession) -> None:
     )
     if product is None:
         return
+    from app.services.commercial import tcg_organization
+
+    product.owner_organization_id = (await tcg_organization(session)).id
     product.name = "mcube"
     product.description = "TCG Digital mcube product family"
     sku_names = {
@@ -350,6 +288,7 @@ SEEDS: tuple[tuple[str, SeedFunction], ...] = (
     ("phase-1b-product-pricing-v1", seed_product_pricing),
     ("phase-1-remaining-permissions-v1", seed_partner_master_data),
     ("phase-1-mcube-display-name-v1", seed_mcube_display_name),
+    ("commercial-model-owner-v1", seed_mcube_display_name),
 )
 
 

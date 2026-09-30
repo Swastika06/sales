@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import get_current_user
-from app.api.v1.endpoints.quotes import snapshot
+from app.api.v1.endpoints.quotes import authorize_quote
 from app.api.v1.endpoints.workflow_common import (
     actor_role,
     make_reference,
@@ -25,6 +25,7 @@ from app.domain.workflows import (
     ensure_transition,
 )
 from app.models.identity import User
+from app.models.partner import Partner, PartnerStatus
 from app.models.sales import (
     DealApprovalStatus,
     DomainEvent,
@@ -35,6 +36,7 @@ from app.models.sales import (
     OrderStatus,
     OrderStatusHistory,
     Quote,
+    QuoteRevision,
     QuoteStatus,
     StoredAttachment,
 )
@@ -48,10 +50,22 @@ from app.schemas.sales import (
     StatusChange,
 )
 from app.services.audit import record_audit_event
+from app.services.commercial_access import (
+    require_opportunity_access,
+    visible_contract_ids,
+    visible_opportunity_ids,
+)
 from app.storage.client import presigned_download_url
 
 maf_router = APIRouter()
 orders_router = APIRouter()
+
+
+async def authorize_order(session: AsyncSession, user: User, order: Order) -> None:
+    quote = await session.get(Quote, order.quote_id)
+    if quote is None:
+        raise HTTPException(404, "Quote not found")
+    await authorize_quote(session, user, quote)
 
 
 async def get_maf(session: AsyncSession, maf_id: UUID) -> MafRequest:
@@ -63,7 +77,10 @@ async def get_maf(session: AsyncSession, maf_id: UUID) -> MafRequest:
 
 async def get_order(session: AsyncSession, order_id: UUID) -> Order:
     order = await session.scalar(
-        select(Order).where(Order.id == order_id).options(selectinload(Order.status_history))
+        select(Order)
+        .where(Order.id == order_id)
+        .with_for_update(of=Order)
+        .options(selectinload(Order.status_history))
     )
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -77,7 +94,10 @@ async def list_mafs(
 ) -> list[MafRead]:
     statement = select(MafRequest).order_by(MafRequest.created_at.desc())
     if not is_tcg_user(user):
-        statement = statement.where(MafRequest.partner_id == user.partner_id)
+        statement = statement.where(
+            MafRequest.partner_id == user.partner_id,
+            MafRequest.opportunity_id.in_(visible_opportunity_ids(user)),
+        )
     return [MafRead.model_validate(item) for item in await session.scalars(statement)]
 
 
@@ -92,13 +112,30 @@ async def create_maf(
     deal = await session.get(Opportunity, body.opportunity_id)
     if deal is None:
         raise HTTPException(status_code=404, detail="Deal not found")
-    require_partner_scope(user, deal.partner_id)
+    await require_opportunity_access(session, user, deal.id)
+    target_partner = body.partner_id or deal.partner_id
+    if target_partner is None:
+        raise HTTPException(422, "MAF authorization requires an actual participating partner")
+    require_partner_scope(user, target_partner)
+    partner = await session.get(Partner, target_partner)
+    if partner is None or partner.status != PartnerStatus.ACTIVE:
+        raise HTTPException(422, "MAF requires an active partner")
+    from app.models.commercial import OpportunityParticipant
+
+    if not await session.scalar(
+        select(OpportunityParticipant.id).where(
+            OpportunityParticipant.opportunity_id == deal.id,
+            OpportunityParticipant.organization_id == partner.organization_id,
+            OpportunityParticipant.active.is_(True),
+        )
+    ):
+        raise HTTPException(422, "The MAF partner must participate in this opportunity")
     if deal.approval_status != DealApprovalStatus.APPROVED:
         raise HTTPException(status_code=409, detail="MAF requests require an approved deal")
     maf = MafRequest(
         reference=make_reference("MAF"),
         opportunity_id=deal.id,
-        partner_id=deal.partner_id,
+        partner_id=target_partner,
         tender_reference=body.tender_reference,
         tender_authority=body.tender_authority,
         tender_due_date=body.tender_due_date,
@@ -132,6 +169,7 @@ async def change_maf_status(
 ) -> MafRead:
     maf = await get_maf(session, maf_id)
     require_partner_scope(user, maf.partner_id)
+    await require_opportunity_access(session, user, maf.opportunity_id)
     require_sales_manage(user)
     admin_statuses = {
         MafStatus.UNDER_REVIEW,
@@ -194,6 +232,7 @@ async def upload_maf_attachment(
 ) -> AttachmentRead:
     maf = await get_maf(session, maf_id)
     require_partner_scope(user, maf.partner_id)
+    await require_opportunity_access(session, user, maf.opportunity_id)
     require_sales_manage(user)
     if kind == "ISSUED_DOCUMENT":
         require_tcg(user)
@@ -213,6 +252,7 @@ async def list_maf_attachments(
 ) -> list[AttachmentRead]:
     maf = await get_maf(session, maf_id)
     require_partner_scope(user, maf.partner_id)
+    await require_opportunity_access(session, user, maf.opportunity_id)
     rows = await session.scalars(
         select(StoredAttachment).where(
             StoredAttachment.owner_type == "MAF", StoredAttachment.owner_id == maf.id
@@ -230,6 +270,7 @@ async def download_maf_attachment(
 ) -> DownloadRead:
     maf = await get_maf(session, maf_id)
     require_partner_scope(user, maf.partner_id)
+    await require_opportunity_access(session, user, maf.opportunity_id)
     attachment = await session.get(StoredAttachment, attachment_id)
     if attachment is None or attachment.owner_type != "MAF" or attachment.owner_id != maf.id:
         raise HTTPException(status_code=404, detail="Attachment not found")
@@ -245,7 +286,9 @@ async def list_orders(
         select(Order).options(selectinload(Order.status_history)).order_by(Order.created_at.desc())
     )
     if not is_tcg_user(user):
-        statement = statement.where(Order.partner_id == user.partner_id)
+        statement = statement.join(Quote, Quote.id == Order.quote_id).where(
+            Quote.contract_id.in_(visible_contract_ids(user))
+        )
     return [OrderRead.model_validate(item) for item in await session.scalars(statement)]
 
 
@@ -262,11 +305,19 @@ async def create_order(
     )
     if quote is None:
         raise HTTPException(status_code=404, detail="Quote not found")
-    require_partner_scope(user, quote.partner_id)
+    await authorize_quote(session, user, quote)
     if quote.status != QuoteStatus.ACCEPTED:
         raise HTTPException(status_code=409, detail="Orders require an accepted quote")
     if await session.scalar(select(Order.id).where(Order.quote_id == quote.id)) is not None:
         raise HTTPException(status_code=409, detail="An order already exists for this quote")
+    revision = await session.scalar(
+        select(QuoteRevision).where(
+            QuoteRevision.quote_id == quote.id,
+            QuoteRevision.revision_number == quote.current_revision,
+        )
+    )
+    if revision is None:
+        raise HTTPException(409, "Accepted quote revision is missing")
     order = Order(
         reference=make_reference("ORD"),
         quote_id=quote.id,
@@ -275,7 +326,7 @@ async def create_order(
         billing_address=body.billing_address,
         billing_email=body.billing_email,
         total=quote.total,
-        quote_snapshot=snapshot(quote),
+        quote_snapshot=revision.snapshot,
         created_by_id=user.id,
     )
     session.add(order)
@@ -311,7 +362,7 @@ async def change_order_status(
     session: AsyncSession = Depends(get_db),
 ) -> OrderRead:
     order = await get_order(session, order_id)
-    require_partner_scope(user, order.partner_id)
+    await authorize_order(session, user, order)
     require_sales_manage(user)
     admin_statuses = {
         OrderStatus.UNDER_REVIEW,
@@ -367,7 +418,7 @@ async def change_order_status(
                     "order_id": str(order.id),
                     "order_reference": order.reference,
                     "quote_id": str(order.quote_id),
-                    "partner_id": str(order.partner_id),
+                    "partner_id": str(order.partner_id) if order.partner_id else None,
                     "total": str(order.total),
                     "currency": order.currency,
                 },
@@ -397,7 +448,7 @@ async def upload_order_attachment(
     session: AsyncSession = Depends(get_db),
 ) -> AttachmentRead:
     order = await get_order(session, order_id)
-    require_partner_scope(user, order.partner_id)
+    await authorize_order(session, user, order)
     require_sales_manage(user)
     attachment = await store_attachment(
         session, owner_type="ORDER", owner_id=order.id, kind=kind, file=file, user=user
@@ -414,7 +465,7 @@ async def list_order_attachments(
     session: AsyncSession = Depends(get_db),
 ) -> list[AttachmentRead]:
     order = await get_order(session, order_id)
-    require_partner_scope(user, order.partner_id)
+    await authorize_order(session, user, order)
     rows = await session.scalars(
         select(StoredAttachment).where(
             StoredAttachment.owner_type == "ORDER", StoredAttachment.owner_id == order.id
@@ -431,7 +482,7 @@ async def download_order_attachment(
     session: AsyncSession = Depends(get_db),
 ) -> DownloadRead:
     order = await get_order(session, order_id)
-    require_partner_scope(user, order.partner_id)
+    await authorize_order(session, user, order)
     attachment = await session.get(StoredAttachment, attachment_id)
     if attachment is None or attachment.owner_type != "ORDER" or attachment.owner_id != order.id:
         raise HTTPException(status_code=404, detail="Attachment not found")

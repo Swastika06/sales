@@ -2,16 +2,14 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import get_current_user
 from app.api.v1.endpoints.workflow_common import (
     actor_role,
-    choose_partner_id,
     make_reference,
-    require_partner_scope,
     require_sales_manage,
     require_tcg,
     store_attachment,
@@ -25,7 +23,6 @@ from app.domain.workflows import (
     validate_pipeline_change,
 )
 from app.models.identity import User
-from app.models.partner import Partner, PartnerStatus
 from app.models.pricing import Product
 from app.models.sales import (
     Customer,
@@ -45,15 +42,32 @@ from app.schemas.sales import (
     ReasonBody,
 )
 from app.services.audit import record_audit_event
+from app.services.commercial import (
+    accrue_conversion,
+    initialize_engagement,
+    validate_engagement,
+)
+from app.services.commercial_access import require_opportunity_access, visible_opportunity_ids
 from app.storage.client import presigned_download_url
 
 router = APIRouter()
+
+
+def deal_response(deal: Opportunity, user: User) -> DealRead:
+    result = DealRead.model_validate(deal)
+    if not is_tcg_user(user):
+        result.actual_contract_value = None
+        result.stage_history = [
+            history.model_copy(update={"note": None}) for history in result.stage_history
+        ]
+    return result
 
 
 async def get_deal(session: AsyncSession, deal_id: UUID) -> Opportunity:
     deal = await session.scalar(
         select(Opportunity)
         .where(Opportunity.id == deal_id)
+        .with_for_update(of=Opportunity)
         .options(selectinload(Opportunity.customer), selectinload(Opportunity.stage_history))
     )
     if deal is None:
@@ -63,10 +77,9 @@ async def get_deal(session: AsyncSession, deal_id: UUID) -> Opportunity:
 
 async def ensure_no_protected_conflict(session: AsyncSession, deal: Opportunity) -> None:
     lock_key = f"deal-protection:{deal.customer_id}:{deal.product_id}"
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
-        {"lock_key": lock_key},
-    )
+    from app.services.commercial import advisory_scope_lock
+
+    await advisory_scope_lock(session, lock_key)
     conflict = await session.scalar(
         select(Opportunity.id)
         .where(
@@ -86,6 +99,21 @@ async def ensure_no_protected_conflict(session: AsyncSession, deal: Opportunity)
         )
 
 
+async def validate_customer_organization(
+    session: AsyncSession,
+    user: User,
+    organization_id: UUID | None,
+) -> None:
+    if organization_id is None:
+        return
+    require_tcg(user)
+    from app.models.commercial import Organization
+
+    org = await session.get(Organization, organization_id)
+    if org is None or not org.is_active:
+        raise HTTPException(422, "Select an existing active customer organization")
+
+
 @router.get("/customers", response_model=list[CustomerRead])
 async def list_customers(
     search: str | None = None,
@@ -96,7 +124,7 @@ async def list_customers(
     if not is_tcg_user(user):
         statement = (
             statement.join(Opportunity, Opportunity.customer_id == Customer.id)
-            .where(Opportunity.partner_id == user.partner_id)
+            .where(Opportunity.id.in_(visible_opportunity_ids(user)))
             .distinct()
         )
     if search:
@@ -111,6 +139,7 @@ async def create_customer(
     session: AsyncSession = Depends(get_db),
 ) -> CustomerRead:
     require_sales_manage(user)
+    await validate_customer_organization(session, user, body.organization_id)
     values = body.model_dump()
     values["country_code"] = body.country_code.upper()
     customer = Customer(**values, created_by_id=user.id)
@@ -133,12 +162,12 @@ async def list_deals(
         .order_by(Opportunity.created_at.desc())
     )
     if not is_tcg_user(user):
-        statement = statement.where(Opportunity.partner_id == user.partner_id)
+        statement = statement.where(Opportunity.id.in_(visible_opportunity_ids(user)))
     if status:
         statement = statement.where(Opportunity.approval_status == status)
     if stage:
         statement = statement.where(Opportunity.stage == stage)
-    return [DealRead.model_validate(item) for item in await session.scalars(statement)]
+    return [deal_response(item, user) for item in await session.scalars(statement)]
 
 
 @router.post("", response_model=DealRead, status_code=201)
@@ -149,10 +178,19 @@ async def create_deal(
     session: AsyncSession = Depends(get_db),
 ) -> DealRead:
     require_sales_manage(user)
-    partner_id = choose_partner_id(user, body.partner_id)
-    partner = await session.get(Partner, partner_id)
-    if partner is None or partner.status != PartnerStatus.ACTIVE:
-        raise HTTPException(status_code=422, detail="An active partner is required")
+    partner_id: UUID | None
+    customer: Customer | None
+    if not is_tcg_user(user):
+        if body.engagement_model == "DIRECT":
+            raise HTTPException(403, "Only TCG can create Direct opportunities")
+        if user.partner_id is None or body.partner_id not in {None, user.partner_id}:
+            raise HTTPException(403, "Submit opportunities for your own organization")
+        partner_id = user.partner_id
+    else:
+        partner_id = body.partner_id
+    from app.services.commercial import partner_for_model
+
+    await partner_for_model(session, partner_id, body.engagement_model)
     if await session.get(Product, body.product_id) is None:
         raise HTTPException(status_code=404, detail="Product not found")
     if body.customer_id is None and body.customer is None:
@@ -161,6 +199,7 @@ async def create_deal(
         raise HTTPException(status_code=422, detail="Provide customer_id or customer, not both")
     customer_id = body.customer_id
     if body.customer:
+        await validate_customer_organization(session, user, body.customer.organization_id)
         customer_values = body.customer.model_dump()
         customer_values["country_code"] = body.customer.country_code.upper()
         customer = Customer(**customer_values, created_by_id=user.id)
@@ -169,7 +208,20 @@ async def create_deal(
         customer_id = customer.id
     elif await session.get(Customer, customer_id) is None:
         raise HTTPException(status_code=404, detail="Customer not found")
+    if not is_tcg_user(user) and body.customer_id:
+        customer = await session.get(Customer, body.customer_id)
+        shared = await session.scalar(
+            select(Opportunity.id)
+            .where(
+                Opportunity.customer_id == body.customer_id,
+                Opportunity.id.in_(visible_opportunity_ids(user)),
+            )
+            .limit(1)
+        )
+        if customer is None or (customer.created_by_id != user.id and not shared):
+            raise HTTPException(404, "Customer not found")
     deal = Opportunity(
+        engagement_model=body.engagement_model,
         reference=make_reference("DEAL"),
         partner_id=partner_id,
         customer_id=customer_id,
@@ -182,6 +234,8 @@ async def create_deal(
     )
     session.add(deal)
     await session.flush()
+    deal = await get_deal(session, deal.id)
+    await initialize_engagement(session, deal, body.engagement_model, user)
     session.add(
         OpportunityStageHistory(
             opportunity_id=deal.id,
@@ -201,7 +255,7 @@ async def create_deal(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return DealRead.model_validate(await get_deal(session, deal.id))
+    return deal_response(await get_deal(session, deal.id), user)
 
 
 @router.get("/{deal_id}", response_model=DealRead)
@@ -211,8 +265,8 @@ async def read_deal(
     session: AsyncSession = Depends(get_db),
 ) -> DealRead:
     deal = await get_deal(session, deal_id)
-    require_partner_scope(user, deal.partner_id)
-    return DealRead.model_validate(deal)
+    await require_opportunity_access(session, user, deal.id)
+    return deal_response(deal, user)
 
 
 @router.post("/{deal_id}/submit", response_model=DealRead)
@@ -223,7 +277,7 @@ async def submit_deal(
     session: AsyncSession = Depends(get_db),
 ) -> DealRead:
     deal = await get_deal(session, deal_id)
-    require_partner_scope(user, deal.partner_id)
+    await require_opportunity_access(session, user, deal.id)
     require_sales_manage(user)
     try:
         ensure_transition(deal.approval_status, DealApprovalStatus.SUBMITTED, DEAL_TRANSITIONS)
@@ -243,7 +297,7 @@ async def submit_deal(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return DealRead.model_validate(await get_deal(session, deal.id))
+    return deal_response(await get_deal(session, deal.id), user)
 
 
 @router.post("/{deal_id}/approve", response_model=DealRead)
@@ -259,12 +313,15 @@ async def approve_deal(
         ensure_transition(deal.approval_status, DealApprovalStatus.APPROVED, DEAL_TRANSITIONS)
     except WorkflowError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    require_sales_manage(user)
+    await validate_engagement(session, deal)
     await ensure_no_protected_conflict(session, deal)
     now = datetime.now(UTC)
     deal.approval_status = DealApprovalStatus.APPROVED
     deal.approved_at = now
     deal.protection_expires_at = now + timedelta(days=90)
     deal.reviewed_by_id = user.id
+    deal.responsible_user_id = deal.responsible_user_id or user.id
     deal.review_reason = None
     await record_audit_event(
         session,
@@ -277,7 +334,7 @@ async def approve_deal(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return DealRead.model_validate(await get_deal(session, deal.id))
+    return deal_response(await get_deal(session, deal.id), user)
 
 
 @router.post("/{deal_id}/reject", response_model=DealRead)
@@ -308,7 +365,7 @@ async def reject_deal(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return DealRead.model_validate(await get_deal(session, deal.id))
+    return deal_response(await get_deal(session, deal.id), user)
 
 
 @router.post("/{deal_id}/stage", response_model=DealRead)
@@ -320,7 +377,7 @@ async def change_stage(
     session: AsyncSession = Depends(get_db),
 ) -> DealRead:
     deal = await get_deal(session, deal_id)
-    require_partner_scope(user, deal.partner_id)
+    await require_opportunity_access(session, user, deal.id)
     require_sales_manage(user)
     if deal.approval_status != DealApprovalStatus.APPROVED:
         raise HTTPException(
@@ -337,6 +394,8 @@ async def change_stage(
         )
     except WorkflowError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if deal.engagement_model in {"DIRECT", "REFERRAL"}:
+        require_tcg(user)
     previous = deal.stage
     deal.stage = body.stage
     if body.stage == PipelineStage.WON:
@@ -344,6 +403,8 @@ async def change_stage(
         deal.actual_close_date = body.actual_close_date
     if body.stage == PipelineStage.LOST:
         deal.lost_reason = body.lost_reason
+    if body.stage == PipelineStage.WON:
+        await accrue_conversion(session, deal)
     session.add(
         OpportunityStageHistory(
             opportunity_id=deal.id,
@@ -365,7 +426,7 @@ async def change_stage(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return DealRead.model_validate(await get_deal(session, deal.id))
+    return deal_response(await get_deal(session, deal.id), user)
 
 
 @router.post("/{deal_id}/attachments", response_model=AttachmentRead, status_code=201)
@@ -376,7 +437,7 @@ async def upload_deal_attachment(
     session: AsyncSession = Depends(get_db),
 ) -> AttachmentRead:
     deal = await get_deal(session, deal_id)
-    require_partner_scope(user, deal.partner_id)
+    await require_opportunity_access(session, user, deal.id, commercial=True)
     require_sales_manage(user)
     attachment = await store_attachment(
         session, owner_type="DEAL", owner_id=deal.id, kind="SUPPORTING", file=file, user=user
@@ -393,7 +454,7 @@ async def list_deal_attachments(
     session: AsyncSession = Depends(get_db),
 ) -> list[AttachmentRead]:
     deal = await get_deal(session, deal_id)
-    require_partner_scope(user, deal.partner_id)
+    await require_opportunity_access(session, user, deal.id, commercial=True)
     rows = await session.scalars(
         select(StoredAttachment).where(
             StoredAttachment.owner_type == "DEAL", StoredAttachment.owner_id == deal.id
@@ -410,7 +471,7 @@ async def download_deal_attachment(
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, str | int]:
     deal = await get_deal(session, deal_id)
-    require_partner_scope(user, deal.partner_id)
+    await require_opportunity_access(session, user, deal.id, commercial=True)
     attachment = await session.get(StoredAttachment, attachment_id)
     if attachment is None or attachment.owner_type != "DEAL" or attachment.owner_id != deal.id:
         raise HTTPException(status_code=404, detail="Attachment not found")

@@ -23,6 +23,7 @@ export function AppLayout() {
           <NavLink to="/pricing">Pricing</NavLink>
           <NavLink to="/documents">Documents</NavLink>
           <NavLink to="/deals">Deals & pipeline</NavLink>
+          <NavLink to="/commercial-model">{isTcg ? "Commercial model" : "My commissions"}</NavLink>
           <NavLink to="/commercial">Quote to order</NavLink>
           <NavLink to="/system">System status</NavLink>
         </nav>

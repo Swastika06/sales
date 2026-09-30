@@ -1,121 +1,72 @@
 # Phase 1 Implementation and Operations Guide
 
-This guide is the operational reference for the Phase 1 implementation. Product requirements
-remain in [PRD.md](PRD.md), confirmed decisions and current gaps remain in
-[Memory.md](Memory.md), and the delivery roadmap remains in [Phases.md](Phases.md).
+Updated **30 September 2026** for the public portal and commercial replacement. Use [PRD.md](PRD.md) for scope, [Architecture.md](Architecture.md) for actual entities and [Commercial-Implementation.md](Commercial-Implementation.md) for commercial APIs and migration verification.
+
+The last implementation verification could not connect to the configured application database. No live migration was applied. The instructions below are the rollout procedure, not a record that deployment has occurred.
 
 ## 1. Delivered Scope
 
-### Phase 1A — Partner Access and Management
+The application provides public onboarding, multi-capability partner administration, catalog/pricing, private content, deals/pipeline, versioned commercial agreements, quotes, MAF, orders and commission records. Every new opportunity selects Direct, Reseller, Referral or System Integrator. Direct needs no external partner. Tiers are retired from active classification, pricing and document grants.
 
-- Public partner registration with TCG approval or rejection
-- TCG-created partners and primary Partner Admin users
-- Partner types, tiers, countries, profiles, users, roles, and permissions
-- Suspension/reactivation controls and backend-enforced partner isolation
+Commercial terms resolve contract → opportunity → effective partner agreement → engagement default → catalog. Quotes freeze approved economics; orders copy accepted revisions. Commission requires Won plus recorded conversion, with settlement recorded separately. `ORDER_CONFIRMED` is persisted without an external publisher.
 
-### Phase 1B — Product and Pricing
+## 2. Prerequisites and Dependencies
 
-- Product and SKU masters with active/inactive lifecycle
-- Effective-dated USD list prices
-- Partner-type rules, tier adjustments, and partner/SKU overrides
-- Deterministic partner pricing with an internal calculation breakdown
-- mcube and LVA development catalog seeds; authoritative list prices are not seeded
+Use Python 3.12+ and Node.js 22+ compatible with the installed dependencies. PostgreSQL and MinIO run outside this repository. The database must exist, and the database account must be able to apply migrations and enable `vector`.
 
-Pricing resolves in this order:
+Keep the intended root `.env`; create it from `.env.example` only when missing. Verify database, MinIO, JWT, CORS and seed-admin configuration without committing credentials. Set `SEED_ADMIN_PASSWORD` to at least 12 characters before running backend commands. `MINIO_ENDPOINT` is the S3 host/port, without a scheme/path; it is not the console URL. Vite reads the root environment. `VITE_PROXY_TARGET` controls the development `/api` proxy; optional `VITE_API_URL` sets the browser API base. Never expose secrets in `VITE_*` variables.
 
-1. Active SKU list price
-2. Partner-type commercial rule
-3. Tier adjustment
-4. Partner-specific override
-5. Final USD partner price
+From the repository root:
 
-### Phase 1C — Content Repository
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+if (-not (Test-Path .venv)) { python -m venv .venv }
+.\.venv\Scripts\python.exe -m pip install -e ".\backend[dev]"
+npm.cmd --prefix frontend ci
+```
 
-- Private MinIO object storage and PostgreSQL metadata
-- Categories, product association, versions, SHA-256 checksums, and search filters
-- All Partner, Partner Type, Partner Tier, Specific Partner, and TCG Internal visibility
-- Authorized ten-minute presigned downloads
-
-### Phase 1D–1E — Customers, Deals, and Pipeline
-
-- Customer capture and partner-scoped deal registration
-- Submit, reject, resubmit, and approve workflow
-- Transaction-safe same-customer/product protection conflict check
-- 90-day protection from approval, excluding terminal Won/Lost deals
-- Pipeline stage history
-- Won requires actual contract value and close date; Lost requires a reason
-
-### Phase 1F — Quotes
-
-- Quote creation from approved deals
-- SKU pricing, quantities, line discounts, commercial model, and validity
-- Line-level pricing snapshots and numbered final revisions
-- TCG finalization, revision reopening, and partner acceptance
-
-### Phase 1G — MAF
-
-- MAF request linked to an approved deal
-- Tender details and supporting attachments
-- Review, return, approval, rejection, issue, and expiry workflow
-- Issued-document requirement and protected downloads
-
-### Phase 1H — Orders
-
-- One order per accepted quote
-- Immutable quote snapshot, billing details, and PO/signed-contract attachment
-- Review, return, confirmation, provisioning, activation, and status history
-- Durable `ORDER_CONFIRMED` record in `domain_events`
-
-## 2. Prerequisites
-
-- PostgreSQL is running and the configured database already exists.
-- The PostgreSQL account can create tables and the `vector` extension.
-- MinIO is running and reachable through the SDK endpoint in `MINIO_ENDPOINT`.
-- The repository `.env` has the intended database, MinIO, JWT, CORS, and seed-admin values.
-- Backend and frontend dependencies have been installed.
-
-Do not put `http://` in `MINIO_ENDPOINT`; use an SDK endpoint such as `localhost:9000`. The MinIO
-administrative console may use a different port depending on the local deployment.
-
-Before applying a migration outside disposable local development, take an appropriate database
-backup and verify the target `.env`.
-
-## 3. Database Migrations
-
-The migration chain is:
+## 3. Database Migration and Legacy Review
 
 | Revision | Scope |
 | --- | --- |
-| `20260922_0001` | Foundation, identity, roles/permissions, audit, seed tracking, pgvector |
-| `20260923_0002` | Partner types, tiers, countries, partners, and partner users |
-| `20260923_0003` | Products, SKUs, prices, commercial terms, tier adjustments, overrides |
-| `20260923_0004` | Documents, customers, deals, pipeline, quotes, MAF, orders, domain events |
+| `20260922_0001` | Identity, permissions, audit, seeds and pgvector |
+| `20260923_0002` | Original partner/type/tier/country schema |
+| `20260923_0003` | Catalog and original pricing schema |
+| `20260923_0004` | Content, customers, deals, quotes, MAF, orders and events |
+| `20260930_0005` | Organizations, capabilities, commercial participation/terms/contracts, snapshots, conversion and commission ledger |
 
-To inspect the generated SQL without connecting to PostgreSQL:
-
-```powershell
-Set-Location C:\Users\nishi\Desktop\sales
-python -m alembic upgrade head --sql
-```
-
-To apply the migration after verifying `.env`:
+Alembic must run from **backend**, which contains `alembic.ini`. To render the entire migration chain without connecting to a database, start from the repository root:
 
 ```powershell
-Set-Location C:\Users\nishi\Desktop\sales
-python -m alembic current
-python -m alembic upgrade head
-python -m alembic current
+Push-Location backend
+..\.venv\Scripts\alembic.exe upgrade head --sql > ..\.venv\commercial-upgrade.sql
+Pop-Location
 ```
 
-The final command should report revision `20260923_0004`.
-
-## 4. Seeds and Object Storage
-
-Run the idempotent seeds after migrating:
+Before applying to an existing installation, verify the target and take a restorable backup. From the repository root:
 
 ```powershell
-python -m app.db.seed
+Push-Location backend
+..\.venv\Scripts\alembic.exe current
+..\.venv\Scripts\alembic.exe upgrade head
+..\.venv\Scripts\alembic.exe current
+Pop-Location
 ```
+
+The resulting head should be `20260930_0005`. The migration is additive and preserves partner identifiers and historical quote/order monetary snapshots. It maps organizations/capabilities, uses consistent explicit quote evidence to classify legacy opportunities and flags **all legacy opportunities** for commercial review. It does not guess the model from partner type.
+
+Tier-scoped documents become TCG Internal pending review. Legacy tier adjustments are deactivated, and old commercial rules are not converted into approved new agreements. The migration inserts the initial 10% referral model default. Review capabilities, roles/components and document grants before new commercial actions. Downgrade intentionally refuses destructive reversal; rollback requires a verified backup restoration.
+
+## 4. Seeds and Private Storage
+
+After migration, from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.db.seed
+.\.venv\Scripts\python.exe -m app.storage.bootstrap
+```
+
+Editable backend installation makes `app` importable from the root. Seeds are idempotent and create roles/permissions, capability/country master data, the configured administrator, mcube/LVA and development license/implementation SKUs. They do not seed authoritative prices, reseller discounts, SI splits or new tiers.
 
 Seed keys:
 
@@ -124,192 +75,118 @@ Seed keys:
 - `phase-1b-product-pricing-v1`
 - `phase-1-remaining-permissions-v1`
 - `phase-1-mcube-display-name-v1`
+- `commercial-model-owner-v1`
 
-The seed creates the agreed roles, permissions, partner master data, development products/SKUs,
-and provisional configurable commercial rules. It does not seed SKU list-price amounts.
+Bucket bootstrap creates a missing bucket and reuses an existing one. It does not audit or replace an existing policy; the bucket must remain private.
 
-Ensure the configured private bucket exists:
+## 5. Start and Inspect
 
-```powershell
-python -m app.storage.bootstrap
-```
-
-Both commands are safe to rerun. An applied seed is skipped and an existing bucket is reused.
-Bootstrap does not audit or replace an existing bucket policy, so verify that a pre-existing bucket
-is private.
-
-## 5. Start the Application
-
-Start the API from the repository root:
+From the repository root:
 
 ```powershell
-python -m uvicorn app.main:app --reload
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
-Start the frontend in another terminal:
+In another terminal at the repository root:
 
 ```powershell
-Set-Location C:\Users\nishi\Desktop\sales\frontend
-npm run dev
+npm.cmd --prefix frontend run dev
 ```
 
-Local entry points:
+| Entry point | Address |
+| --- | --- |
+| Public portal | `http://localhost:5173` |
+| Partner sign-in | `http://localhost:5173/login` |
+| Workspace | `http://localhost:5173/dashboard` |
+| Commercial workspace | `http://localhost:5173/commercial-model` |
+| API documentation | `http://localhost:8000/docs` |
+| OpenAPI | `http://localhost:8000/openapi.json` |
+| Liveness / readiness | `http://localhost:8000/api/v1/health/live`, `/api/v1/health/ready` |
 
-- Frontend: `http://localhost:5173`
-- API documentation: `http://localhost:8000/docs`
-- OpenAPI document: `http://localhost:8000/openapi.json`
-- Liveness: `http://localhost:8000/api/v1/health/live`
-- Readiness: `http://localhost:8000/api/v1/health/ready`
+Readiness checks database/storage; the frontend polls it on System status. Liveness alone does not establish database availability.
 
 ## 6. Automated Verification
 
-Backend:
+From the repository root:
 
 ```powershell
-Set-Location C:\Users\nishi\Desktop\sales
-python -m ruff check backend\app backend\tests backend\alembic
-python -m mypy --config-file backend\pyproject.toml backend\app
-python -m pytest -q backend
-python -m alembic upgrade head --sql
+.\.venv\Scripts\ruff.exe check backend
+.\.venv\Scripts\mypy.exe backend/app --config-file backend/pyproject.toml
+.\.venv\Scripts\pytest.exe backend/tests -q
+npm.cmd --prefix frontend run lint
+npm.cmd --prefix frontend run build
 ```
 
-Frontend:
+Recorded on 30 September 2026: **55 backend tests passed**, with Ruff, strict Mypy, ESLint and frontend type/build checks passing. Browser tests use mocked APIs; SQL/API tests include isolated SQLite fixtures, which do not prove PostgreSQL concurrency behavior. Fresh/legacy migrations were additionally executed in isolated PGlite PostgreSQL with pgvector omitted only for that harness.
 
-```powershell
-Set-Location C:\Users\nishi\Desktop\sales\frontend
-npm run lint
-npx tsc -b --pretty false
-npm run build
-```
+Optional browser/migration dependencies and commands are documented in [Commercial-Implementation.md](Commercial-Implementation.md#verification). Use an installed Microsoft Edge browser and a running Vite server. Tests make no live payout, provisioning or email calls. Live PostgreSQL/MinIO smoke testing remains necessary.
 
-Last recorded baseline: 24 backend tests passed; Ruff, Mypy strict mode, ESLint, TypeScript, the
-Vite production build, and offline migration rendering all passed.
+## 7. Live Acceptance Smoke Test
 
-## 7. Phase 1 Acceptance Smoke Test
+Use a test environment and approved test data. Do not treat illustrative amounts as contractual defaults.
 
-### 7.1 Foundation and Authentication
+### Foundation and partner access
 
-1. Confirm liveness returns `status: ok`.
-2. Confirm readiness reports PostgreSQL and MinIO as available.
-3. Sign in using the seed administrator configured in `.env`.
-4. Call `/api/v1/auth/me` and confirm the TCG Admin role and permissions.
+1. Verify liveness and database/storage readiness; sign in with the configured seed administrator.
+2. Submit a public application requesting more than one capability; confirm only successful submission shows a reference.
+3. Review/approve it as TCG Admin without tier assignment. Create Partner Sales and read-only users.
+4. Verify another partner cannot read/change its resources by ID; verify suspension and account-switch cache clearing.
 
-### 7.2 Partner Access
+### Catalog, organization and terms
 
-1. As TCG Admin, create an active partner and its Partner Admin.
-2. Sign out and submit another company through `/register`.
-3. Sign back in as TCG Admin and approve or reject the pending registration.
-4. For an active partner, create a Partner Sales user.
-5. Verify a partner token cannot read or change another partner's resource by ID.
-6. Suspend a test partner and confirm its users can no longer authenticate.
+1. Configure an effective USD price on an active SKU and confirm its product owner.
+2. Reuse an existing organization where it has multiple profiles; add explicit partner/vendor agreements as needed.
+3. Draft/approve commercial terms using their intended scope and effective dates. Verify explicit zero is preserved and equal-specificity overlaps fail.
+4. Preview pricing with the selected engagement model. Confirm there is no tier, automatic reseller discount or SI markup in resolution.
+5. Review every migrated opportunity through Commercial model → Migration review before new quote activity.
 
-### 7.3 Product and Pricing
+### Four-model quote and order journeys
 
-1. Open **Products & SKUs** as TCG Admin.
-2. Configure an effective USD list price for at least one active SKU.
-3. Open **Pricing**, select an active partner, and inspect the calculation breakdown.
-4. Add a partner/SKU fixed or percentage override and confirm the resolved price changes.
-5. Sign in as that partner and confirm only its authorized final pricing is returned.
+1. Create an opportunity for each model with valid participants, grants, scoped roles and components. Direct must work without a partner. Submit/approve each.
+2. Verify same-customer/product protection conflict and 90-day expiry. Check stage-history and Won/Lost required fields.
+3. Create quotes; SI must reference its draft TCG selling contract. Add SKU lines and finalize as TCG. Verify frozen terms/source versions.
+4. Change a draft line's source price and confirm finalization requires removing/re-adding stale lines. Verify finalized historical revisions stay unchanged.
+5. Have the reseller buyer accept wholesale. Verify TCG Admin cannot accept for it. Test SI buyer acceptance and TCG external-customer acceptance for Direct/Referral.
+6. Create one order from each accepted quote using the authorized execution party. Upload commitment with kind `PURCHASE_ORDER`, submit, review/return, confirm, provision and activate.
+7. Verify the copied accepted revision, status history and durable `ORDER_CONFIRMED` event. No external project should be assumed.
 
-### 7.4 Documents
+### Economics and commission
 
-1. Publish a small document for All Partners.
-2. Confirm its metadata and first version appear in **Documents**.
-3. Sign in as a partner and confirm the document can be listed and downloaded.
-4. Publish a TCG Internal document and confirm the partner cannot list or download it.
-5. Through the API, test a Partner Type, Partner Tier, or Specific Partner scope.
-6. Upload another version and verify the version number and SHA-256 metadata change.
+1. Confirm private reseller selling price produces an undisclosed margin, not zero; disclosed negative gross margin remains valid.
+2. Exercise SI fixed, named-pool and component methods; check residual rounding, explicit vendor deductions and the whole-project majority warning.
+3. Configure explicit referral eligibility and treatment rules. Verify 10% default and an approved 0% override, while forecast remains separate from accrual.
+4. Mark a qualifying deal Won and record conversion against its agreed current Final/Accepted snapshot with actual eligible revenue. Verify retry creates no duplicate accrual and a Lost deal cannot accrue.
+5. Under the agreed settlement policy, record referenced adjustments/payments; verify duplicate references, stale ledger state and overpayment are rejected. No money is transferred by these actions.
+6. Verify referral users cannot view customer bids/orders, private vendor documents or other participants' entitlements.
 
-### 7.5 Deals and Pipeline
+### Documents, MAF and audit
 
-1. Register a deal for an active partner, customer, and product.
-2. Submit and approve it as TCG; confirm a 90-day protection expiry is recorded.
-3. Attempt the same customer/product for a second partner and confirm HTTP 409.
-4. Move the approved deal through at least one pipeline stage.
-5. Verify stage history through `GET /api/v1/deals/{deal_id}`.
-6. Confirm Won is rejected without actual contract value and close date.
-7. Confirm Lost is rejected without a reason.
+1. Publish All Partners and TCG Internal documents; test authorized download, denial and version/checksum metadata. Use the API for capability/specific-partner scopes and new versions.
+2. Verify broad library scope cannot expose linked private vendor/contract documents or unauthorized workflow attachments.
+3. Create MAF for a real participating partner on an approved deal. Review, upload `ISSUED_DOCUMENT`, issue and verify protected download/90-day expiry.
+4. Inspect audit records for partner, term, structure, deal, quote, MAF, order and commission actions, including actor and request context.
 
-### 7.6 Quotes
+## 8. Operational Boundaries
 
-1. Create a quote from the approved deal.
-2. Add a priced SKU with quantity and an optional line discount.
-3. Finalize the quote as TCG and confirm revision 1 is stored.
-4. Optionally reopen it, change the draft, and finalize revision 2.
-5. Sign in as the owning partner and accept the final quote.
-6. Confirm the snapshot retains the price used even if live pricing is changed later.
-
-### 7.7 MAF
-
-1. Create a MAF request against the approved deal.
-2. Upload supporting tender evidence and submit it.
-3. As TCG, return it with a reason or approve it.
-4. Upload an attachment with kind `ISSUED_DOCUMENT`.
-5. Issue the MAF and confirm its expiry metadata and protected download.
-
-### 7.8 Orders
-
-1. Create an order from the accepted quote.
-2. Upload a PO or signed contract.
-3. Submit the order and return it once with a correction reason if desired.
-4. Confirm it as TCG.
-5. Verify an `ORDER_CONFIRMED` row exists in `domain_events` for the order.
-6. Move the order to Provisioning and then Active.
-7. Verify the complete status history is retained.
-
-### 7.9 Audit Review
-
-Confirm high-value actions in `audit_logs`, including actor, role, entity, timestamp, changed
-values, and request ID. Review partner, pricing, document, deal, quote, MAF, and order actions.
-
-## 8. Operational Notes
-
-- All authoritative commercial values use USD.
-- Provisional pricing rules remain database configuration, not application constants.
-- Partner-owned records are always authorized by the API using `partner_id`.
-- Frontend visibility is a usability feature and is not an authorization boundary.
-- MinIO objects remain private. Authorized downloads expire after ten minutes.
-- Phase 1 uploads are limited to 25 MB.
-- Quote and order snapshots must never be recalculated from current pricing.
-- `ORDER_CONFIRMED` is persisted transactionally but is not externally published yet.
-- MAF and quote expiry are not driven by a background scheduler in the current release.
+Amounts remain USD; accepted snapshots never recalculate from new prices. Files must be nonempty and at most 25 MB; download links expire after ten minutes. There is no file malware scanner, scheduled expiry, external event publisher, automated payout or provisioning integration. The dashboard sums latest stored commercial snapshots per opportunity as operational forecasts, not booked revenue.
 
 ## 9. Troubleshooting
 
-### PostgreSQL reports that the database does not exist
-
-The server can be reachable while the database named in `DATABASE_URL` is absent. Confirm the
-database name, account, and port in `.env`, then create the database or point the URL to the
-existing database before rerunning Alembic.
-
-### Readiness reports MinIO as unavailable
-
-Confirm `MINIO_ENDPOINT` is the S3 API endpoint rather than the browser-console URL, verify the
-credentials, and rerun `python -m app.storage.bootstrap`.
-
-### Resolved pricing is empty
-
-The development seed intentionally creates no list-price amounts. Add an effective USD price to
-an active SKU through **Products & SKUs**.
-
-### A workflow action returns HTTP 403
-
-Check both the user's role/permissions and its `partner_id`. A valid record ID does not bypass
-partner ownership checks.
-
-### An order cannot be submitted
-
-Verify the source quote is Accepted and that the order has an attachment whose kind is
-`PURCHASE_ORDER`.
-
-### A MAF cannot be issued
-
-Verify the MAF is Approved and has an attachment whose kind is `ISSUED_DOCUMENT`.
+| Symptom | Check |
+| --- | --- |
+| Database connection refused | Configured service/host/port is reachable; confirm the intended target before retrying. |
+| Database does not exist | Provision the named database or correct configuration before Alembic. |
+| Alembic cannot find configuration | Run from `backend` using the root virtual environment. |
+| MinIO readiness failure | S3 endpoint, credentials, TLS setting and private bucket existence; console port is not the API endpoint. |
+| Empty/missing resolved pricing | Active SKU, effective catalog price, engagement model, partner eligibility and approved term dates. No authoritative prices are seeded. |
+| HTTP 403 | User permission, active partner/capability, participation grant and legal contracting party; a valid ID is insufficient. |
+| Commercial review/version conflict | Resolve legacy structure/reapproval or reload current version before editing. |
+| Stale quote pricing | Remove/re-add affected draft lines, then finalize against current approved sources. |
+| Quote cannot finalize | Approved/reviewed deal, TCG selling contract, valid scoped roles/components, approved terms and explicit compensation eligibility. |
+| Order cannot submit | Accepted quote, execution permission and attachment kind `PURCHASE_ORDER`. |
+| MAF cannot issue | Approved request and attachment kind `ISSUED_DOCUMENT`. |
+| No commission accrual | Won plus recorded conversion, agreed snapshot and actual eligible basis are all required. |
 
 ## 10. Known Acceptance Refinements
 
-The authoritative list is maintained in [PRD.md](PRD.md#24-known-acceptance-refinements) and
-[Memory.md](Memory.md#31-known-acceptance-gaps). Current items include deal editing before
-resubmission, Customer Master editing/deduplication, complete document-scope/version controls in
-the UI, richer attachment controls, scheduled expiry, quote approval thresholds, and external
-publication of `ORDER_CONFIRMED`.
+[PRD Section 24](PRD.md#24-known-acceptance-refinements) is the maintained list. It includes general deal editing, customer administration/deduplication, fuller document and attachment UI, guided forms, expiry scheduling, quote thresholds and future external integrations. Public testimonials remain illustrative until approved real endorsements are supplied.

@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.security import hash_password
+from app.models.commercial import Organization
 from app.models.identity import Role, User
-from app.models.partner import Country, Partner, PartnerStatus, PartnerTier, PartnerType
+from app.models.partner import Country, Partner, PartnerStatus, PartnerType
 from app.schemas.partner import AdminPartnerCreate, PartnerRegistrationRequest
 
 
@@ -18,15 +19,6 @@ async def get_partner_type(session: AsyncSession, code: str) -> PartnerType:
     )
     if value is None:
         raise HTTPException(status_code=422, detail=f"Unknown partner type: {code}")
-    return value
-
-
-async def get_partner_tier(session: AsyncSession, code: str) -> PartnerTier:
-    value = await session.scalar(
-        select(PartnerTier).where(PartnerTier.code == code, PartnerTier.is_active.is_(True))
-    )
-    if value is None:
-        raise HTTPException(status_code=422, detail=f"Unknown partner tier: {code}")
     return value
 
 
@@ -83,13 +75,27 @@ async def create_partner(
 ) -> tuple[Partner, User]:
     email = str(payload.primary_contact_email).lower()
     await ensure_email_available(session, email)
-    partner_type = await get_partner_type(session, payload.partner_type_code)
+    capabilities = [await get_partner_type(session, code) for code in payload.capability_codes]
+    partner_type = capabilities[0]
     countries = await get_countries(session, payload.country_codes)
-    tier = (
-        await get_partner_tier(session, payload.tier_code)
-        if isinstance(payload, AdminPartnerCreate)
-        else None
-    )
+    organization = None
+    if isinstance(payload, AdminPartnerCreate) and payload.organization_id:
+        organization = await session.get(Organization, payload.organization_id)
+        if organization is None or not organization.is_active:
+            raise HTTPException(422, "Select an active organization")
+        if await session.scalar(
+            select(Partner.id).where(Partner.organization_id == organization.id)
+        ):
+            raise HTTPException(409, "This organization already has a partner profile")
+    if organization is None:
+        from uuid import uuid4
+
+        organization = Organization(
+            legal_name=payload.legal_name or payload.company_name,
+            identifier=f"partner:{uuid4()}",
+        )
+        session.add(organization)
+        await session.flush()
     partner_admin_role = (await get_roles(session, ["PARTNER_ADMIN"]))[0]
     partner = Partner(
         company_name=payload.company_name.strip(),
@@ -102,7 +108,8 @@ async def create_partner(
         primary_contact_email=email,
         primary_contact_phone=payload.primary_contact_phone,
         partner_type=partner_type,
-        tier=tier,
+        capabilities=capabilities,
+        organization_id=organization.id,
         countries=countries,
         users=[],
         status=PartnerStatus.ACTIVE if activate else PartnerStatus.PENDING_APPROVAL,

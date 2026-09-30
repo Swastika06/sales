@@ -28,8 +28,7 @@ export function RegisterPage({ admin = false }: { admin?: boolean }) {
     mutation.mutate({
       company_name: form.get("company_name"),
       legal_name: form.get("legal_name") || null,
-      partner_type_code: form.get("partner_type_code"),
-      tier_code: admin ? form.get("tier_code") : undefined,
+      capability_codes: form.getAll("capability_codes"),
       country_codes: form.getAll("country_codes"),
       website: form.get("website") || null,
       company_email: form.get("company_email"),
@@ -62,8 +61,7 @@ export function RegisterPage({ admin = false }: { admin?: boolean }) {
         <fieldset><legend>Company</legend><div className="form-grid">
           <label>Company name<input name="company_name" required minLength={2} /></label>
           <label>Legal name<input name="legal_name" /></label>
-          <label>Partner type<select name="partner_type_code" required defaultValue=""><option value="" disabled>Select type</option>{options.data?.partner_types.map((item) => <option key={item.id} value={item.code}>{item.name}</option>)}</select></label>
-          {admin && <label>Partner tier<select name="tier_code" required>{options.data?.partner_tiers.map((item) => <option key={item.id} value={item.code}>{item.name}</option>)}</select></label>}
+          <label>Capabilities<select name="capability_codes" required multiple size={3}>{options.data?.partner_types.map((item) => <option key={item.id} value={item.code}>{item.name}</option>)}</select></label>
           <label>Countries<select name="country_codes" required multiple size={5}>{options.data?.countries.map((item) => <option key={item.id} value={item.code}>{item.name}</option>)}</select><small>Use Ctrl/Cmd to select more than one.</small></label>
           <label>Website<input name="website" type="url" placeholder="https://" /></label>
           <label>Company email<input name="company_email" type="email" required /></label>

@@ -1,637 +1,138 @@
-# Partner Portal — Product Requirements Document (PRD)
+# Partner Portal — Product Requirements Document
+
+Current implementation baseline: **30 September 2026**. This document describes delivered behavior and separates remaining acceptance work. The detailed commercial specification is [Commercial-Model.md](Commercial-Model.md); operational evidence and deployment limits are in [Commercial-Implementation.md](Commercial-Implementation.md).
 
 ## 1. Product Summary
 
-TCG Digital supplies products including **mcube** and **LVA**. The Partner Portal is a web application used by TCG Digital and approved partner companies to manage partner onboarding, pricing access, content, deal registration, quoting, MAF requests, and order tracking.
+TCG Digital supplies mcube and LVA. The portal introduces its partner ecosystem, accepts applications and provides a shared workspace for partner administration, controlled content, deal registration, commercial agreements, quotes, MAF requests and orders.
 
-The product replaces fragmented offline work such as email, spreadsheets, manual approval chains, ad-hoc document sharing, and untracked deal claims with a controlled, auditable portal.
+## 2. Delivered Scope
 
-## 2. Phase 1 Scope
+The repository implements the public partner journey and the core Phase 0–1H workflows, including the commercial-model replacement. Partner capabilities, shared organizations, opportunity participation, versioned terms, immutable commercial snapshots and a conversion-based commission ledger are included. Source implementation is complete for this baseline; target-environment rollout and stakeholder acceptance remain separate.
 
-**Delivery status (23 September 2026): Implementation baseline complete.** Phase 0 and the core
-Phase 1A through Phase 1H workflows are present in the application. Environment rollout,
-stakeholder configuration, acceptance testing, and the refinements listed in Section 24 remain.
+## 3. Deferred Scope
 
-Phase 1 includes:
+Project delivery management, support/SLA, training/certification, renewals, QBR, partner health scoring, advanced analytics, AI/RAG, billing/invoicing, ERP integration, automated payouts and external event publication are not implemented. Live FX is also deferred; all authoritative amounts are USD.
 
-1. **Partner Access & Management**
-   - Partner self-registration
-   - Partner creation by TCG Admin
-   - TCG approval/rejection of partner registrations
-   - Partner profile management
-   - Partner type
-   - Partner tier
-   - Territory/country
-   - User and role management
-   - Role-based access control
+## 4. Actors and Permissions
 
-2. **Pricing & Quotes**
-   - Product and SKU master
-   - USD-based commercial pricing
-   - Partner-type pricing rules
-   - Tier-based pricing adjustments
-   - Partner-specific overrides
-   - Quote creation
-   - Quote finalization / approval
-   - Special discount handling
+TCG Admin administers the platform; TCG Sales manages authorized sales workflows. Partner Admin manages its company/users and sales workflows; Partner Sales manages authorized sales workflows. Partner Pre-Sales and Partner Delivery have authorized read access in the current seed. Backend permissions and opportunity/contract membership govern access, including where a frontend action is visible.
 
-3. **Content Repository**
-   - mcube / LVA documentation
-   - Sales enablement kits
-   - Product documentation
-   - Implementation guides
-   - Proposal templates
-   - SOW templates
-   - RFP material
-   - Controlled document access
-   - File storage in MinIO AIStor
+## 5. Organizations and Partner Capabilities
 
-4. **Deal Registration & Pipeline**
-   - Deal registration
-   - Admin approval / rejection
-   - Duplicate/conflict detection
-   - Deal protection
-   - Pipeline stage tracking
-   - Stage history
-   - Won / lost tracking
+A shared organization may have customer, partner and vendor profiles. Products have independent owner organizations; mcube belongs to TCG. Partners can hold several approved capabilities: `RESELLER`, `REFERRAL`, `SYSTEM_INTEGRATOR`.
 
-5. **MAF**
-   - Manufacturer Authorization Form request
-   - Admin review
-   - Return for correction
-   - Approval
-   - Issue / upload generated document
-   - Download by authorized partner users
-
-6. **Orders**
-   - Order creation after quote acceptance
-   - Accepted quote linkage
-   - PO / signed contract attachment
-   - TCG review
-   - Return for correction
-   - Confirmation
-   - Provisioning status
-   - Active status
-
-## 3. Out of Scope for Phase 1
-
-- Support ticketing
-- SLA management
-- Training/certification
-- Implementation project management
-- License/subscription renewal workflows
-- QBR
-- Partner health scoring
-- Advanced analytics
-- AI/RAG document assistant
-- Automated tier promotion/demotion
-- Billing/invoicing engine
-- ERP integration
-
-The architecture should leave room for these later.
-
-## 4. Primary Actors
-
-### TCG Users
-- **TCG Admin**
-- **TCG Sales**
-
-### Partner Users
-- **Partner Admin**
-- **Partner Sales**
-- **Partner Pre-Sales**
-- **Partner Delivery**
-
-## 5. Partner Model
-
-### 5.1 Partner Types
-- `RESELLER`
-- `REFERRAL`
-- `SYSTEM_INTEGRATOR`
-
-### 5.2 Partner Tiers
-- `SILVER`
-- `GOLD`
-- `PLATINUM`
-
-Phase 1 uses manual tier assignment by TCG Admin.
-
-Temporary development pricing assumptions:
-- Silver: 0% additional tier adjustment
-- Gold: 5% additional benefit
-- Platinum: 10% additional benefit
-
-These values must be configurable and treated as placeholders until finalized.
-
-### 5.3 Territory
-Territory refers to location/country.
-
-Rules:
-- Multiple partners may operate in the same country.
-- Territory does not block deal registration.
-- A partner may be associated with one or more countries.
+Capabilities describe eligibility, not ranking or automatic deal access. Tier assignment, tier benefits and tier pricing are retired. Historical tier references remain for audit only. Countries describe coverage; multiple partners may operate in the same country, and country overlap does not block registration.
 
 ## 6. Partner Onboarding
 
-### 6.1 TCG-Created Partner
-1. TCG Admin creates partner.
-2. TCG Admin creates or invites Partner Admin.
-3. Partner becomes active.
+Public visitors discover products, compare partnership paths, read illustrative stories and apply through a three-step Company → Your details → Review form. Applications collect company/contact details, countries, requested capabilities and initial administrator credentials. Password confirmation, consent and required fields are validated; confirmation appears only after successful API submission.
 
-### 6.2 Self-Registration
-1. Partner submits registration.
-2. Status becomes `PENDING_APPROVAL`.
-3. TCG Admin reviews.
-4. Admin approves or rejects.
-5. If approved, partner becomes `ACTIVE`.
-6. If rejected, rejection reason is stored.
+Self-registration creates `PENDING_APPROVAL`. TCG Admin reviews capabilities and approves or rejects, with a reason for rejection. TCG can also create partners directly. Supported statuses are `PENDING_APPROVAL`, `ACTIVE`, `REJECTED`, `SUSPENDED`, `INACTIVE`. Approval no longer assigns a tier.
 
-Partner statuses:
-- `PENDING_APPROVAL`
-- `ACTIVE`
-- `REJECTED`
-- `SUSPENDED`
-- `INACTIVE`
+## 7. Partner Profile
 
-## 7. Recommended Partner Profile Fields
-
-### Company
-- Company name *
-- Legal name
-- Partner type *
-- Tier
-- Country / countries *
-- Website
-- Company email *
-- Phone
-- Address
-
-### Primary Contact
-- Name *
-- Email *
-- Phone
-
-### System / TCG-Controlled
-- Partner code
-- Status
-- Approved by
-- Approved at
-- Created at
-- Updated at
+Profiles capture company/legal name, capabilities, countries, website, email, phone, address and primary contact details. TCG controls status and capability changes. Partner administrators manage permitted profile fields and their own users. Shared organization IDs allow an existing organization to be reused across profiles.
 
 ## 8. Deal Model
 
-Phase 1 uses a single **Deal/Opportunity** entity.
+The UI calls an `Opportunity` a **Deal**. There is no separate Lead entity. Every new deal selects exactly one primary engagement model. Direct deals need no external partner; partner-led models require an eligible active partner. Additional organizations participate through explicit membership, scoped responsibilities and solution components.
 
-- UI term: **Deal**
-- Backend/domain term: **Opportunity**
-- A separate Lead entity is not required initially.
+## 9. Deal and Commercial Structure
 
-## 9. Recommended Deal Registration Fields
+The current deal form captures model, customer/country, product, name, contact email, estimated value and optional expected close date. TCG can select an existing customer organization. The commercial editor captures the accountable TCG user, participants, access grants, scoped primary roles and components.
 
-### Customer
-- Customer/account *
-- Customer website/domain
-- Country *
-- Industry
+Components independently identify product/service, owner, seller, delivery organization, bill-to and amount. Roles include customer relationship owner, bidder, contracting seller, mcube seller, delivery lead, referrer, product owner, technology provider and bill-to. An approved capability alone does not grant visibility.
 
-### Opportunity
-- Deal name *
-- Product *
-- Estimated contract value (USD)
-- Expected close date *
-- Requirement / description *
+## 10. Engagement Models
 
-### Contact
-- Customer contact name
-- Designation
-- Email
-- Phone
+| Model | Implemented economics and execution |
+| --- | --- |
+| `DIRECT` | TCG contracts with the customer; full applicable customer value belongs to TCG by default. Optional partner compensation requires an explicit beneficiary and approved eligibility/rate. |
+| `RESELLER` | TCG sells wholesale to the reseller. Customer selling price can remain private; undisclosed margin and partner benefit remain null. No referral allocation is permitted. |
+| `REFERRAL` | TCG executes the customer quote/order. Default commission is 10% of explicitly eligible revenue; approved overrides allow 0–100%. Forecast is separate from earned commission. |
+| `SYSTEM_INTEGRATOR` | Parties and responsibilities are explicit. Economics use fixed mcube value, a percentage of a named pool, or itemized component allocation. There is no automatic markup or assumed split. |
 
-### Commercial / Ownership
-- Partner role on this deal *
-- Commercial model *
-- Partner Sales owner *
-- TCG Sales owner
-- Competitor
-- Notes
+Vendor agreements remain independent of partner compensation. Vendor costs identify provider, buyer/payer, billing basis and scope. They reduce an SI pool only when explicitly included as deductions; a cost cannot be deducted twice.
 
-### Attachments
-- Supporting files
+## 11. Deal Approval and Changes
 
-### System-Controlled
-- Deal number
-- Partner
-- Approval status
-- Pipeline stage
-- Protection status
-- Created/updated timestamps
+Approval states are `DRAFT`, `SUBMITTED`, `UNDER_REVIEW`, `APPROVED`, `REJECTED`. TCG reviews submissions; rejected deals can be resubmitted. Commercial structure and term changes to an approved deal require reapproval. Concurrent edits use an expected version. Accepted structures require an amendment reason; accepted contract term changes require a replacement contract. General operational deal-field editing remains a refinement.
 
-## 10. Partner Type vs Deal Role vs Commercial Model
+## 12. Duplicate and Conflict Rule
 
-These are separate concepts.
-
-### Partner Type
-- Reseller
-- Referral
-- System Integrator
-
-### Deal Role
-- `RESELLER`
-- `REFERRAL`
-- `SYSTEM_INTEGRATOR`
-- `COSELL`
-
-### Commercial Model
-- `TRANSFER_PRICING`
-- `REFERRAL_COMMISSION`
-- `SI_SERVICES`
-- `HYBRID`
-
-A System Integrator may act as a reseller on one deal and as a referral partner on another.
-
-## 11. Deal Approval
-
-Approval status:
-- `DRAFT`
-- `SUBMITTED`
-- `UNDER_REVIEW`
-- `APPROVED`
-- `REJECTED`
-
-Workflow:
-1. Partner creates draft.
-2. Partner submits.
-3. TCG Admin reviews.
-4. Admin approves or rejects.
-5. Rejected deals can be edited and resubmitted.
-
-Approved deals may be updated for operational fields such as expected close date, estimated value, notes, and customer contact. Changing customer/product should require Admin intervention or re-approval.
-
-## 12. Duplicate / Conflict Rule
-
-Conflict key:
-
-> Same customer + same product + active protected deal = conflict
-
-Examples:
-- Acme Pharma + mcube by Partner A → approved/protected
-- Acme Pharma + mcube by Partner B → blocked/conflict
-- Acme Pharma + LVA by Partner B → allowed
-
-Customer matching should use a Customer Master and `customer_id`, not only text matching.
+Conflict identity is canonical `customer_id` + `product_id`. Another approved, unexpired protected deal that is neither Won nor Lost blocks a conflicting submission/approval. A different product is allowed. PostgreSQL transaction advisory locks serialize checks for the same customer/product pair.
 
 ## 13. Deal Protection
 
-- Protection starts when Admin approves the deal.
-- Phase 1 protection expires 90 days after approval.
-- A `WON` or `LOST` deal is terminal and no longer blocks another partner through the active
-  conflict rule.
-- Approval and submission serialize conflict checks for the same customer/product pair to avoid
-  concurrent duplicate protection.
+Protection begins at approval and expires after 90 days. Won/Lost are terminal and stop blocking conflicts. There is no manual extension control. Changing the duration requires a future policy decision.
 
-Store:
-- `approved_at` as the protection start
-- `protection_expires_at` as the protection end
+## 14. Pipeline
 
-Manual extension is not part of Phase 1. A future policy may make the 90-day duration
-configurable.
+Stages are `REGISTERED`, `QUALIFIED`, `DISCOVERY`, `DEMO`, `POC`, `PROPOSAL`, `NEGOTIATION`, `WON`, `LOST`. Updates require an approved deal and authorized sales access. Direct/Referral stage management remains with TCG; partner management for other models follows commercial access. Transitions need not follow adjacent stages.
 
-## 14. Pipeline Stages
+Won requires actual contract value and close date; Lost requires a reason. Every transition is recorded. Partner responses redact actual contract value and stage-history notes. Won alone does not accrue commission.
 
-1. `REGISTERED`
-2. `QUALIFIED`
-3. `DISCOVERY`
-4. `DEMO`
-5. `POC`
-6. `PROPOSAL`
-7. `NEGOTIATION`
-8. `WON`
-9. `LOST`
+## 15. Products and Catalog
 
-Both Partner Sales and TCG Sales may change stages. Every stage change must be recorded in stage history.
+The initial catalog contains mcube and LVA with license/implementation SKUs. Products and SKUs are configurable, and product ownership is explicit. Authoritative SKU prices are intentionally not seeded; stakeholders must supply effective catalog prices and contractual inputs.
 
-Recommended validations:
-- `WON` requires actual contract value and close date.
-- `LOST` requires loss reason.
+## 16. Commercial Resolution
 
-## 15. Products
+Approved compatible parameters resolve in this order: **contract → opportunity → effective partner agreement → engagement default → catalog**. Effective dates, model and SKU specificity apply. Explicit zero overrides are retained; overlapping equally specific terms are rejected. Fixed prices replace catalog prices, and discounts do not compound.
 
-Initial products:
-- `MCUBE`
-- `LVA`
+USD calculations use decimal half-up rounding to two places. SI residuals go to the named beneficiary. The SI share of total project value is visible; a share of 50% or less raises a review warning rather than rejection.
 
-The data model must support later addition of SKUs.
-
-Suggested development SKUs:
-- `MCUBE-LICENSE`
-- `MCUBE-IMPLEMENTATION`
-- `LVA-LICENSE`
-- `LVA-IMPLEMENTATION`
-
-Actual catalog and pricing will be configured later.
-
-## 16. Pricing
-
-### 16.1 Official Currency
-All authoritative commercial values are stored and calculated in **USD**.
-
-### 16.2 Live FX
-Live FX may be used only for optional informational local-currency display. FX movement must not change accepted/stored commercial values.
-
-### 16.3 Pricing Precedence
-1. Product list price
-2. Partner type rule
-3. Partner tier adjustment
-4. Partner-specific override
-5. Final partner price
-
-### 16.4 Temporary Development Defaults
-- Reseller: 20% discount from list price
-- Referral: default 3%, configurable 1–5%, applied on contract value
-- System Integrator: 15% markup on applicable service price
-- Silver tier: 0%
-- Gold tier: 5%
-- Platinum tier: 10%
-
-These are placeholders only.
+Referral finalization requires an explicit eligible amount, component scope and treatment of discounts, taxes, vendor charges, credits and refunds. Accrual requires Won plus recorded conversion against the agreed current Final/Accepted snapshot, with actual eligible revenue under the same scope/treatments. Retries cannot duplicate accrual. Referenced adjustments and payments are separate append-only entries; settlement requires an agreed policy. No automatic payment is made.
 
 ## 17. Quotes
 
-A quote represents the proposed commercial offer before customer commitment.
+Quotes require an approved, classified, reviewed opportunity with valid roles/components and a TCG selling contract. The model is inherited from the deal. Reseller uses TCG-to-partner wholesale; Direct/Referral uses TCG-to-customer; SI requires an explicit draft contract reference.
 
-Quote should capture:
-- Customer
-- Deal
-- Product/SKU lines
-- Quantity
-- Subscription term
-- Implementation work
-- List price
-- Discount
-- Final price
-- Currency = USD
-- Validity period
-- Commercial model
-- Version/revision
-- Approval/finalization state
+SKU lines resolve applicable pricing when added. Manual extra line discounts are disabled; discounts belong in approved terms. Finalization rejects stale line prices/sources and freezes a numbered quote revision plus commercial snapshot. A Final quote can reopen as Draft; earlier revisions remain immutable. Accepted quotes are terminal.
 
-Accepted quote values must be snapshotted and preserved historically.
+Statuses are `DRAFT`, `UNDER_REVIEW`, `FINAL`, `ACCEPTED`, `EXPIRED`, `CANCELLED`. Reseller acceptance belongs to the wholesale buyer, including when a TCG user is an administrator. SI acceptance follows the contracting buyer; TCG records external customer acceptance for Direct/Referral and applicable SI customer contracts.
 
-### 17.1 Implemented Quote Rules
+## 18. Manufacturer Authorization Form
 
-- A quote can be created only from an approved deal.
-- SKU unit prices are taken from the effective partner pricing resolver when the line is added.
-- Each line stores the pricing date, resolved unit price, calculation breakdown, commercial model,
-  and commission metadata used at that time.
-- Only draft quotes can be edited.
-- TCG finalizes a quote. Finalization creates an immutable numbered revision snapshot.
-- TCG may reopen a final quote as a new draft revision; the prior snapshot remains unchanged.
-- The partner accepts the final quote.
-- An order can be created only from an accepted quote.
+MAF authorizes a real active participating partner for a named customer/product/tender. Creation requires an approved deal. Direct deals do not require a fictitious partner.
 
-## 18. MAF
+States are `DRAFT`, `SUBMITTED`, `UNDER_REVIEW`, `RETURNED_FOR_CORRECTION`, `APPROVED`, `ISSUED`, `REJECTED`, `EXPIRED`. TCG controls review and issuance; return/rejection requires a reason. An `ISSUED_DOCUMENT` attachment is required before issue. Issuance records a 90-day expiry; document generation and scheduled expiry are not implemented.
 
-MAF = Manufacturer Authorization Form.
+## 19. Orders
 
-Phase 1 includes MAF.
+One order may be created per accepted quote, subject to contracting-party execution access. It copies the accepted quote revision, including the frozen commercial reference. The order reference is assigned at creation. Submission requires a PO or signed commitment uploaded with attachment kind `PURCHASE_ORDER`.
 
-Purpose:
-- Authorize a named partner to offer TCG product(s) for a specific tender / RFP / bid.
+States are `DRAFT`, `SUBMITTED`, `UNDER_REVIEW`, `RETURNED_FOR_CORRECTION`, `CONFIRMED`, `PROVISIONING`, `ACTIVE`, `CANCELLED`. TCG reviews billing/commitment details, returns with a reason when needed, confirms and advances fulfilment status. Confirmation stores `ORDER_CONFIRMED` in the same transaction; no external provisioning integration is invoked.
 
-### MAF Workflow
-- `DRAFT`
-- `SUBMITTED`
-- `UNDER_REVIEW`
-- `RETURNED_FOR_CORRECTION`
-- `APPROVED`
-- `ISSUED`
-- `REJECTED`
-- `EXPIRED`
+## 20. Content and Attachments
 
-### Recommended MAF Fields
-- Request number
-- Partner *
-- Related deal *
-- Customer *
-- Product(s) *
-- Tender/RFP name *
-- Tender/RFP number
-- Issuing organization
-- Submission deadline *
-- Authorization purpose
-- Requested validity date
-- Partner legal name/address
-- Supporting tender/RFP document
-- Additional attachments
-- Review / approval metadata
-- Issued MAF document
-- Issue date
-- Expiry date
+PostgreSQL stores metadata/versions; private MinIO stores files. Categories cover sales enablement, product documentation, implementation guides, pricing, proposal/SOW templates, RFP and Other. API visibility supports `ALL_PARTNERS`, `PARTNER_TYPE` (any matching approved capability), `SPECIFIC_PARTNER`, `TCG_INTERNAL`. New tier scopes are rejected; migrated tier-scoped documents become internal pending review.
 
-Recommended eligibility:
-- Partner must be active.
-- Deal should be approved before MAF is issued.
+Downloads are authorized and signed for ten minutes. Uploads must be nonempty and at most 25 MB; versions retain SHA-256, MIME type, size and uploader. Linked private vendor/contract documents and workflow attachments remain subject to their parent access rules even if a broad library scope exists. Malware scanning and a content-type allowlist are not implemented.
 
-MAF does not itself create a deal, quote, or order.
+## 21. Acceptance Status
 
-Implemented controls:
-- A MAF request can be created only against an approved deal.
-- TCG controls review, return, rejection, approval, issuance, and expiry transitions.
-- Return and rejection require a reason.
-- An issued document must be uploaded before the request can move to `ISSUED`.
-- Issuance records an expiry 90 days from the issue action in Phase 1.
-- Supporting and issued documents are private and available only through authorized, short-lived
-  downloads.
+The source baseline has 55 passing backend tests plus successful Ruff, strict Mypy, frontend type/build and ESLint checks recorded on 30 September 2026. Mocked public/commercial browser checks cover responsive layouts, forms, role views and automated accessibility. An isolated PostgreSQL migration harness checks fresh and legacy upgrades through `20260930_0005`.
 
-## 19. Order
+These checks do not establish live deployment acceptance. The configured database refused connections during the implementation verification; no application database migration was applied. Live database/MinIO and stakeholder-data journeys remain to be verified using the [operations guide](Phase1-Implementation.md).
 
-An order is created after the customer accepts the quote.
+## 22. Required Business Configuration
 
-Meaning:
-- Deal = pursuing the customer
-- Quote = proposed price/terms
-- Order = customer committed and fulfilment can begin
+Supply approved catalog prices, reseller wholesale terms, SI allocation agreements, referral eligibility/exclusion and settlement/refund policies, MAF template/signatory policy, retention policy and any quote approval thresholds. Public stories are illustrative and need approved endorsements before being presented as actual partner success stories. Retired tier adjustments and old percentage assumptions must not be reintroduced as defaults.
 
-### Order Flow
-1. Deal approved.
-2. Quote finalized.
-3. Customer signs contract or provides PO.
-4. Order is submitted with PO/signed agreement.
-5. TCG reviews commercial and billing details.
-6. If incorrect, order is returned for correction.
-7. If accepted, TCG confirms the order and assigns order number.
-8. Order moves into provisioning.
-9. Order becomes active.
+## 23. Technical Baseline
 
-### Order Statuses
-- `DRAFT`
-- `SUBMITTED`
-- `UNDER_REVIEW`
-- `RETURNED_FOR_CORRECTION`
-- `CONFIRMED`
-- `PROVISIONING`
-- `ACTIVE`
-- `CANCELLED`
-
-### Who Submits
-- Reseller: Partner submits order to TCG.
-- Referral: TCG submits/creates order; referral partner remains linked.
-- SI/Joint: Based on the customer contracting party.
-
-### Recommended Order Fields
-- Order number
-- Related deal *
-- Related accepted quote *
-- Partner *
-- Customer *
-- Products/SKUs *
-- Commercial model *
-- Customer contracting party *
-- PO number/date
-- PO or signed agreement attachment *
-- Contract value USD *
-- Approved transfer price
-- Referral rate/amount if applicable
-- Billing name/address/contact/email
-- Subscription start date
-- Subscription term
-- Requested fulfilment date
-- Implementation required flag
-- SOW reference
-- Status
-- Submitted/reviewed/confirmed metadata
-- Return reason
-- Notes
-
-### Submission Validations
-- Deal must be approved.
-- Deal must not be lost.
-- Quote must be final/approved.
-- Commitment document must exist.
-- Pricing differences from quote must be flagged for review.
-
-### Confirmation Event
-On `CONFIRMED`, emit domain event:
-- `ORDER_CONFIRMED`
-
-Future phases may use this event to create an implementation project automatically.
-
-The Phase 1 implementation persists this event in the `domain_events` outbox-style table in the
-same database transaction as the status change. External event publication is deferred.
-
-## 20. Content Repository
-
-Recommended categories:
-- Sales Enablement
-- Product Documentation
-- Implementation Guide
-- Pricing
-- Proposal Template
-- SOW Template
-- RFP
-- Other
-
-PostgreSQL stores metadata. MinIO AIStor stores binary files.
-
-Recommended visibility scopes:
-- `ALL_PARTNERS`
-- `PARTNER_TYPE`
-- `PARTNER_TIER`
-- `SPECIFIC_PARTNER`
-- `TCG_INTERNAL`
-
-Implemented repository controls:
-- Files remain in a private MinIO bucket; direct public object access is not used.
-- The API authorizes metadata and downloads using TCG access or the user's partner, type, and tier.
-- Downloads use presigned URLs that expire after ten minutes.
-- Each version records file name, MIME type, byte size, SHA-256 checksum, uploader, version number,
-  and change note.
-- Uploads are limited to 25 MB in Phase 1.
-- Search supports title/description, category, and product filters.
-
-## 21. Phase 1 Success Criteria
-
-Phase 1 is successful when:
-- A partner can register and be approved.
-- A TCG Admin can create partners manually.
-- Partner users see only authorized partner data.
-- Pricing can be configured and displayed per partner.
-- Users can access controlled documents.
-- A partner can register a deal.
-- Admin can approve/reject a deal.
-- Duplicate/protected conflicts are enforced.
-- Partner and TCG Sales can move deals through the pipeline.
-- Partner can request MAF and receive issued document.
-- Quote can be finalized and linked to an order.
-- Accepted order can be submitted, reviewed, corrected, confirmed, provisioned, and activated.
-- Important actions are auditable.
-
-### 21.1 Implementation Acceptance Status
-
-The criteria above are covered by backend workflows and role-aware workspace screens, subject to
-the acceptance refinements in Section 24. The implementation provides:
-
-- Navigation for **Documents**, **Deals & pipeline**, and **Quote to order**.
-- Backend-enforced partner isolation; frontend visibility is not treated as authorization.
-- Private attachments for deals, MAF requests, and orders.
-- Audit records for high-value partner, catalog, pricing, deal, document, quote, MAF, and order
-  actions.
-- Versioned schema migrations through `20260923_0004` and idempotent seed records.
-- Automated workflow, authentication, access, pricing, and API tests.
-
-Production acceptance still requires the migration and seed to be applied to the target
-environment and the smoke-test journey to be completed with stakeholder-approved catalog and
-commercial data.
-
-## 22. Remaining Configuration Items
-
-Not blockers for development:
-- Final mcube/LVA SKU catalog
-- Actual SKU prices
-- Final Reseller formula
-- Final SI formula
-- Final Silver/Gold/Platinum pricing adjustments
-- Final MAF document template/signatory/validity rules
-- Final quote approval thresholds
-- Whether deal-protection and MAF-validity durations remain 90 days or become policy-driven
-- Final file-size and retention policy
-
-## 23. As-Built Technical Baseline
-
-- Frontend: React, TypeScript, Vite, React Router, and TanStack Query
-- API: FastAPI with versioned routes under `/api/v1`
-- Persistence: PostgreSQL with SQLAlchemy async sessions and Alembic
-- Object storage: private MinIO bucket with protected presigned downloads
-- Authentication: JWT bearer tokens
-- Authorization: roles, permissions, and mandatory partner ownership checks in the API
-- Auditability: structured audit rows carrying actor, role, entity, values, timestamp, and request ID
-- Official currency: USD
-- Durable order integration boundary: persisted `ORDER_CONFIRMED` domain event
-
-Phase 1 database revisions:
-
-1. `20260922_0001` — foundation, identity, audit, seeds, and pgvector
-2. `20260923_0002` — partner access and management
-3. `20260923_0003` — product and pricing
-4. `20260923_0004` — content, customers, deals, pipeline, quotes, MAF, and orders
+React/TypeScript/Vite uses React Router and TanStack Query. FastAPI exposes `/api/v1`, JWT authentication and backend authorization. SQLAlchemy async sessions, PostgreSQL/pgvector, Alembic and private MinIO provide persistence. The schema head is `20260930_0005`; immutable financial history and audit records preserve approved outcomes. See [Architecture.md](Architecture.md) for actual entities and transaction boundaries.
 
 ## 24. Known Acceptance Refinements
 
-These items are recorded explicitly so the implemented baseline is not mistaken for final
-stakeholder acceptance:
-
-- Rejected deals can be resubmitted, but editing deal fields before resubmission still needs a
-  dedicated update endpoint and UI.
-- The Customer Master currently supports capture and authorized listing; merge/deduplication and
-  administrative editing are not yet exposed.
-- Full document visibility scopes and document version upload exist in the API. The current
-  publisher screen exposes the common All Partners and TCG Internal choices; type, tier, specific
-  partner, and version-management controls need UI completion.
-- Deal, MAF, and order attachments have protected API workflows. Rich attachment listing and
-  download controls remain limited in the current UI.
-- Expiry dates are stored, but scheduled automatic MAF/quote expiry is not implemented.
-- Quote approval thresholds remain unconfigured and unenforced until stakeholders provide the
-  rules.
-- `ORDER_CONFIRMED` is durably persisted but is not yet published to an external broker or
-  consumed by a project module.
+- General deal-field editing before resubmission is incomplete; commercial structure editing and reapproval are implemented.
+- Customer capture/reuse and authorized listing exist; administrative editing, merging and deduplication do not.
+- Capability/specific-partner document scopes and version uploads exist in the API; the publisher UI exposes All Partners and TCG Internal, with fuller version management deferred.
+- Protected attachment APIs exceed the current rich list/download controls in some screens.
+- Several operational actions use browser prompts, and SI quote creation requires a contract reference rather than a guided selector.
+- Quote/MAF expiry has metadata and states, with no scheduler. MAF issuance uses uploaded documents.
+- Quote approval thresholds await policy and are not enforced.
+- `ORDER_CONFIRMED` is persisted, with no external publication or project consumer.
+- Automated payout, invoice/ERP, live FX and complete amendment-lifecycle management are outside this baseline.

@@ -76,7 +76,18 @@ async def create_product(
     require_tcg_admin(user)
     if await session.scalar(select(Product.id).where(Product.code == payload.code)):
         raise HTTPException(status_code=409, detail="Product code already exists")
+    from app.models.commercial import Organization
+    from app.services.commercial import tcg_organization
+
+    tcg = await tcg_organization(session)
+    owner = payload.owner_organization_id or tcg.id
+    organization = await session.get(Organization, owner)
+    if organization is None or not organization.is_active:
+        raise HTTPException(422, "Select an active product owner organization")
+    if payload.code == "MCUBE" and owner != tcg.id:
+        raise HTTPException(422, "TCG owns mcube")
     product = Product(
+        owner_organization_id=owner,
         code=payload.code,
         name=payload.name.strip(),
         description=payload.description,

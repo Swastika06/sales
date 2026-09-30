@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.pricing import AdjustmentType, OverrideType, SkuCategory
+from app.models.pricing import SkuCategory
 
 
 class EffectiveDatedSchema(BaseModel):
@@ -19,6 +19,7 @@ class EffectiveDatedSchema(BaseModel):
 
 
 class ProductCreate(BaseModel):
+    owner_organization_id: UUID | None = None
     code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9][A-Z0-9_-]*$")
     name: str = Field(min_length=2, max_length=150)
     description: str | None = Field(default=None, max_length=4000)
@@ -62,6 +63,7 @@ class SkuRead(BaseModel):
 
 
 class ProductRead(BaseModel):
+    owner_organization_id: UUID | None
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -90,92 +92,9 @@ class ProductPriceRead(BaseModel):
     is_active: bool
 
 
-class CommercialTermUpsert(EffectiveDatedSchema):
-    adjustment_type: AdjustmentType
-    percentage: Decimal = Field(ge=0, le=1000, max_digits=7, decimal_places=4)
-
-    @model_validator(mode="after")
-    def validate_adjustment(self) -> "CommercialTermUpsert":
-        if self.adjustment_type == AdjustmentType.PERCENT_DISCOUNT and self.percentage > 100:
-            raise ValueError("Discount percentage cannot exceed 100")
-        if self.adjustment_type == AdjustmentType.REFERRAL_COMMISSION and not (
-            Decimal("1") <= self.percentage <= Decimal("5")
-        ):
-            raise ValueError("Referral commission must be between 1% and 5%")
-        if self.adjustment_type == AdjustmentType.NONE and self.percentage != 0:
-            raise ValueError("NONE adjustment must use zero percent")
-        return self
-
-
-class CommercialTermRead(BaseModel):
-    id: UUID
-    partner_type_id: UUID
-    partner_type_code: str
-    partner_type_name: str
-    adjustment_type: AdjustmentType
-    percentage: Decimal
-    effective_from: date
-    effective_until: date | None
-    is_active: bool
-
-
-class TierAdjustmentUpsert(EffectiveDatedSchema):
-    discount_percentage: Decimal = Field(ge=0, le=100, max_digits=7, decimal_places=4)
-
-
-class TierAdjustmentRead(BaseModel):
-    id: UUID
-    tier_id: UUID
-    tier_code: str
-    tier_name: str
-    discount_percentage: Decimal
-    effective_from: date
-    effective_until: date | None
-    is_active: bool
-
-
-class PartnerOverrideCreate(EffectiveDatedSchema):
-    partner_id: UUID
-    sku_id: UUID
-    override_type: OverrideType
-    value: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-
-    @model_validator(mode="after")
-    def validate_override(self) -> "PartnerOverrideCreate":
-        if self.override_type == OverrideType.PERCENT_DISCOUNT and self.value > 100:
-            raise ValueError("Discount percentage cannot exceed 100")
-        return self
-
-
-class PartnerOverrideRead(BaseModel):
-    id: UUID
-    partner_id: UUID
-    partner_name: str
-    sku_id: UUID
-    sku_code: str
-    override_type: OverrideType
-    value: Decimal
-    currency: str
-    effective_from: date
-    effective_until: date | None
-    is_active: bool
-
-
-class PricingConfiguration(BaseModel):
-    commercial_terms: list[CommercialTermRead]
-    tier_adjustments: list[TierAdjustmentRead]
-    partner_overrides: list[PartnerOverrideRead]
-
-
 class PriceBreakdown(BaseModel):
-    list_price: Decimal
-    partner_type_adjustment: AdjustmentType | None
-    partner_type_percentage: Decimal
-    after_partner_type: Decimal
-    tier_discount_percentage: Decimal
-    after_tier: Decimal
-    override_type: OverrideType | None
-    override_value: Decimal | None
+    list_price: Decimal | None = None
+    sources: dict[str, str]
 
 
 class ResolvedPriceRead(BaseModel):
@@ -190,14 +109,14 @@ class ResolvedPriceRead(BaseModel):
     currency: str = "USD"
     final_price: Decimal
     effective_from: date
-    effective_until: date | None
-    commercial_model: AdjustmentType | None
-    commission_percentage: Decimal | None
+    effective_until: date | None = None
+    commercial_model: str
+    commission_percentage: Decimal | None = None
     breakdown: PriceBreakdown | None = None
 
 
 class PartnerPricingResponse(BaseModel):
-    partner_id: UUID
+    partner_id: UUID | None
     partner_name: str
     as_of: date
     currency: str = "USD"

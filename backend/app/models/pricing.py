@@ -34,6 +34,9 @@ class OverrideType(StrEnum):
 class Product(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "products"
 
+    owner_organization_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id"), nullable=True
+    )
     code: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(150))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

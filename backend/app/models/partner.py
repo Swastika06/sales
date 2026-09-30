@@ -30,6 +30,14 @@ partner_countries = Table(
 )
 
 
+partner_capabilities = Table(
+    "partner_capabilities",
+    Base.metadata,
+    Column("partner_id", ForeignKey("partners.id", ondelete="CASCADE"), primary_key=True),
+    Column("capability_id", ForeignKey("partner_types.id", ondelete="RESTRICT"), primary_key=True),
+)
+
+
 class PartnerType(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "partner_types"
 
@@ -63,6 +71,13 @@ class Partner(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "status IN ('PENDING_APPROVAL', 'ACTIVE', 'REJECTED', 'SUSPENDED', 'INACTIVE')",
             name="valid_status",
         ),
+    )
+
+    organization_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id"), nullable=True, unique=True
+    )
+    capabilities: Mapped[list[PartnerType]] = relationship(
+        secondary=partner_capabilities, lazy="selectin"
     )
 
     code: Mapped[str | None] = mapped_column(String(30), unique=True, index=True, nullable=True)

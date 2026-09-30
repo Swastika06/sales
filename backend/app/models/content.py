@@ -23,7 +23,6 @@ class DocumentCategory(StrEnum):
 class DocumentVisibility(StrEnum):
     ALL_PARTNERS = "ALL_PARTNERS"
     PARTNER_TYPE = "PARTNER_TYPE"
-    PARTNER_TIER = "PARTNER_TIER"
     SPECIFIC_PARTNER = "SPECIFIC_PARTNER"
     TCG_INTERNAL = "TCG_INTERNAL"
 

@@ -11,6 +11,7 @@ def can_access_document(
     document_partner_id: object | None,
     document_partner_type_id: object | None,
     document_partner_tier_id: object | None,
+    user_capability_ids: set[object] | None = None,
 ) -> bool:
     if is_tcg:
         return True
@@ -21,7 +22,10 @@ def can_access_document(
     if visibility == DocumentVisibility.SPECIFIC_PARTNER:
         return user_partner_id == document_partner_id
     if visibility == DocumentVisibility.PARTNER_TYPE:
-        return user_partner_type_id == document_partner_type_id
-    if visibility == DocumentVisibility.PARTNER_TIER:
-        return user_partner_tier_id == document_partner_tier_id
+        return document_partner_type_id is not None and document_partner_type_id in (
+            user_capability_ids or set()
+        )
+    # Legacy tier grants fail closed; migration quarantines them for TCG review.
+    if visibility == "PARTNER_TIER":
+        return False
     return False

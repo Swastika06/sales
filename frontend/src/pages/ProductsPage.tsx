@@ -12,6 +12,7 @@ import {
   updateSku,
   type Sku,
 } from "../api/client";
+import { commercial, type Organization } from "../features/commercial/types";
 import { useAuth } from "../features/auth/AuthContext";
 
 function today(): string {
@@ -74,6 +75,7 @@ export function ProductsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const canManage = Boolean(user?.is_superuser || user?.roles.includes("TCG_ADMIN"));
+  const organizations = useQuery({ queryKey: ["commercial", "organizations"], queryFn: () => commercial<Organization[]>("/organizations"), enabled: canManage });
   const products = useQuery({ queryKey: ["products"], queryFn: getProducts });
   const productMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) => createProduct(body),
@@ -91,7 +93,7 @@ export function ProductsPage() {
   function addProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    productMutation.mutate({ code: String(form.get("code")).toUpperCase(), name: form.get("name"), description: form.get("description") || null });
+    productMutation.mutate({ owner_organization_id: form.get("owner_organization_id") || null, code: String(form.get("code")).toUpperCase(), name: form.get("name"), description: form.get("description") || null });
     event.currentTarget.reset();
   }
 
@@ -124,7 +126,7 @@ export function ProductsPage() {
           <div className="sku-list">{product.skus.length ? product.skus.map((sku) => <SkuRow key={sku.id} sku={sku} canManage={canManage} />) : <p className="notice">No SKUs configured.</p>}</div>
         </article>)}
       </section>
-      {canManage && <form className="content-card compact-form catalog-create" onSubmit={addProduct}><span className="status-kicker">Catalog</span><h2>Add product</h2>{error && <div className="form-alert form-alert--error">{error}</div>}<label>Product code<input name="code" required pattern="[A-Z0-9][A-Z0-9_-]*" placeholder="PRODUCT-CODE" /></label><label>Name<input name="name" required /></label><label>Description<textarea name="description" rows={4} /></label><button type="submit" disabled={productMutation.isPending}>Add product</button></form>}
+      {canManage && <form className="content-card compact-form catalog-create" onSubmit={addProduct}><span className="status-kicker">Catalog</span><h2>Add product</h2>{error && <div className="form-alert form-alert--error">{error}</div>}<label>Product code<input name="code" required pattern="[A-Z0-9][A-Z0-9_-]*" placeholder="PRODUCT-CODE" /></label><label>Name<input name="name" required /></label><label>Product owner<select name="owner_organization_id"><option value="">TCG Digital</option>{organizations.data?.map(org => <option key={org.id} value={org.id}>{org.legal_name}</option>)}</select></label><label>Description<textarea name="description" rows={4} /></label><button type="submit" disabled={productMutation.isPending}>Add product</button></form>}
     </div>
   </div>;
 }

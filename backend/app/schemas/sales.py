@@ -4,8 +4,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.commercial import EngagementModel
+
 
 class CustomerCreate(BaseModel):
+    organization_id: UUID | None = None
     name: str = Field(min_length=2, max_length=200)
     legal_name: str | None = Field(default=None, max_length=200)
     website: str | None = Field(default=None, max_length=500)
@@ -22,6 +25,7 @@ class CustomerRead(CustomerCreate):
 
 
 class DealCreate(BaseModel):
+    engagement_model: EngagementModel
     partner_id: UUID | None = None
     customer_id: UUID | None = None
     customer: CustomerCreate | None = None
@@ -54,10 +58,14 @@ class StageHistoryRead(BaseModel):
 
 
 class DealRead(BaseModel):
+    engagement_model: EngagementModel | None
+    commercial_version: int
+    migration_review_required: bool
+    responsible_user_id: UUID | None
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     reference: str
-    partner_id: UUID
+    partner_id: UUID | None
     customer_id: UUID
     product_id: UUID
     name: str
@@ -80,7 +88,8 @@ class DealRead(BaseModel):
 
 class QuoteCreate(BaseModel):
     opportunity_id: UUID
-    commercial_model: str = Field(default="RESELLER", max_length=50)
+    commercial_model: EngagementModel | None = None
+    contract_id: UUID | None = None
     valid_until: date | None = None
     notes: str | None = None
 
@@ -105,11 +114,12 @@ class QuoteItemRead(BaseModel):
 
 
 class QuoteRead(BaseModel):
+    contract_id: UUID | None
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     reference: str
     opportunity_id: UUID
-    partner_id: UUID
+    partner_id: UUID | None
     status: str
     commercial_model: str
     valid_until: date | None
@@ -130,6 +140,7 @@ class StatusChange(BaseModel):
 
 
 class MafCreate(BaseModel):
+    partner_id: UUID | None = None
     opportunity_id: UUID
     tender_reference: str = Field(min_length=2, max_length=150)
     tender_authority: str = Field(min_length=2, max_length=200)
@@ -143,7 +154,7 @@ class MafRead(BaseModel):
     id: UUID
     reference: str
     opportunity_id: UUID
-    partner_id: UUID
+    partner_id: UUID | None
     status: str
     tender_reference: str
     tender_authority: str
@@ -177,7 +188,7 @@ class OrderRead(BaseModel):
     id: UUID
     reference: str
     quote_id: UUID
-    partner_id: UUID
+    partner_id: UUID | None
     status: str
     billing_name: str
     billing_address: str

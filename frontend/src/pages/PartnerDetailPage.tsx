@@ -21,7 +21,7 @@ export function PartnerDetailPage() {
   const options = useQuery({ queryKey: ["registration-options"], queryFn: getRegistrationOptions });
   const isAdmin = user?.roles.includes("TCG_ADMIN") || user?.is_superuser;
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["partner", partnerId] });
-  const approve = useMutation({ mutationFn: (tier: string) => approvePartner(partnerId, tier), onSuccess: refresh });
+  const approve = useMutation({ mutationFn: () => approvePartner(partnerId), onSuccess: refresh });
   const reject = useMutation({ mutationFn: (reason: string) => rejectPartner(partnerId, reason), onSuccess: refresh });
   const statusMutation = useMutation({ mutationFn: (value: PartnerStatus) => changePartnerStatus(partnerId, value), onSuccess: refresh });
   const update = useMutation({ mutationFn: (body: Record<string, unknown>) => updatePartner(partnerId, body), onSuccess: refresh });
@@ -31,11 +31,7 @@ export function PartnerDetailPage() {
   const value = partner.data;
   const canEdit = Boolean(isAdmin || (user?.partner_id === partnerId && user.roles.includes("PARTNER_ADMIN")));
 
-  function approveRegistration() {
-    const defaultTier = options.data?.partner_tiers[0]?.code ?? "SILVER";
-    const tier = window.prompt("Tier code (SILVER, GOLD, or PLATINUM)", defaultTier);
-    if (tier) approve.mutate(tier.toUpperCase());
-  }
+  function approveRegistration() { approve.mutate(); }
 
   function rejectRegistration() {
     const reason = window.prompt("Rejection reason");
@@ -53,17 +49,18 @@ export function PartnerDetailPage() {
       primary_contact_email: form.get("primary_contact_email"),
       primary_contact_phone: form.get("primary_contact_phone") || null,
       country_codes: form.getAll("country_codes"),
-      ...(isAdmin ? { partner_type_code: form.get("partner_type_code"), tier_code: form.get("tier_code") } : {}),
+      ...(isAdmin ? { capability_codes: form.getAll("capability_codes") } : {}),
     });
   }
 
   return (
     <div className="workspace-page">
       <header className="page-heading page-heading--row">
-        <div><Link className="back-link" to="/partners">← Partners</Link><span className="eyebrow">{value.code ?? "Pending registration"}</span><h1>{value.company_name}</h1><p>{value.partner_type.name} · {value.countries.map((country) => country.name).join(", ")}</p></div>
+        <div><Link className="back-link" to="/partners">← Partners</Link><span className="eyebrow">{value.code ?? "Pending registration"}</span><h1>{value.company_name}</h1><p>{value.capabilities.map(item => item.name).join(", ")} · {value.countries.map((country) => country.name).join(", ")}</p></div>
         <span className={`status-pill status-pill--${value.status.toLowerCase()}`}>{value.status.replaceAll("_", " ")}</span>
       </header>
 
+      {(approve.error || update.error || statusMutation.error || reject.error) && <p role="alert" className="form-alert form-alert--error">{(approve.error || update.error || statusMutation.error || reject.error)?.message}</p>}
       {value.rejection_reason && <div className="form-alert form-alert--error"><strong>Rejection reason:</strong> {value.rejection_reason}</div>}
       {isAdmin && <section className="action-bar">
         {value.status === "PENDING_APPROVAL" && <><button type="button" onClick={approveRegistration}>Approve</button><button className="button-danger" type="button" onClick={rejectRegistration}>Reject</button></>}
@@ -78,7 +75,7 @@ export function PartnerDetailPage() {
           <div className="field-wide"><dt>Address</dt><dd>{value.address ?? "—"}</dd></div>
         </dl></section>
         <section className="content-card detail-card"><span className="status-kicker">Program</span><h2>Classification</h2><dl>
-          <div><dt>Partner type</dt><dd>{value.partner_type.name}</dd></div><div><dt>Tier</dt><dd>{value.tier?.name ?? "Not assigned"}</dd></div>
+          <div><dt>Capabilities</dt><dd>{value.capabilities.map(item => item.name).join(", ")}</dd></div>
           <div className="field-wide"><dt>Countries</dt><dd>{value.countries.map((country) => country.name).join(", ")}</dd></div>
         </dl></section>
         <section className="content-card detail-card"><span className="status-kicker">Primary contact</span><h2>{value.primary_contact_name}</h2><dl>
@@ -89,7 +86,7 @@ export function PartnerDetailPage() {
         <label>Company name<input name="company_name" defaultValue={value.company_name} required /></label><label>Legal name<input name="legal_name" defaultValue={value.legal_name ?? ""} /></label>
         <label>Company email<input name="company_email" type="email" defaultValue={value.company_email} required /></label><label>Website<input name="website" type="url" defaultValue={value.website ?? ""} /></label>
         <label>Phone<input name="phone" defaultValue={value.phone ?? ""} /></label><label>Countries<select name="country_codes" multiple size={5} defaultValue={value.countries.map((country) => country.code)}>{options.data?.countries.map((country) => <option value={country.code} key={country.id}>{country.name}</option>)}</select></label>
-        {isAdmin && <><label>Partner type<select name="partner_type_code" defaultValue={value.partner_type.code}>{options.data?.partner_types.map((item) => <option value={item.code} key={item.id}>{item.name}</option>)}</select></label><label>Tier<select name="tier_code" defaultValue={value.tier?.code ?? "SILVER"}>{options.data?.partner_tiers.map((item) => <option value={item.code} key={item.id}>{item.name}</option>)}</select></label></>}
+        {isAdmin && <label>Capabilities<select name="capability_codes" multiple required size={3} defaultValue={value.capabilities.map(item => item.code)}>{options.data?.partner_types.map(item => <option value={item.code} key={item.id}>{item.name}</option>)}</select></label>}
         <label>Primary contact<input name="primary_contact_name" defaultValue={value.primary_contact_name} required /></label><label>Contact email<input name="primary_contact_email" type="email" defaultValue={value.primary_contact_email} required /></label>
         <label>Contact phone<input name="primary_contact_phone" defaultValue={value.primary_contact_phone ?? ""} /></label><label className="field-wide">Address<textarea name="address" rows={3} defaultValue={value.address ?? ""} /></label>
       </div><div className="form-actions"><button type="submit" disabled={update.isPending}>{update.isPending ? "Saving…" : "Save profile"}</button></div></form></details>}

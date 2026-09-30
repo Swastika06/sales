@@ -17,8 +17,10 @@ def actor_role(user: User) -> str | None:
     return sorted(role_codes(user))[0] if user.roles else None
 
 
-def require_partner_scope(user: User, partner_id: UUID) -> None:
-    if not is_tcg_user(user) and user.partner_id != partner_id:
+def require_partner_scope(user: User, partner_id: UUID | None) -> None:
+    if not is_tcg_user(user) and (
+        partner_id is None or user.partner_id is None or user.partner_id != partner_id
+    ):
         raise HTTPException(status_code=403, detail="This record belongs to another partner")
 
 

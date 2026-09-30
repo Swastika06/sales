@@ -1,140 +1,85 @@
 # TCG Partner Portal
 
-Phase 0 establishes the local development foundation for the Partner Portal:
+TCG's public Partner Network and authenticated workspace support partner onboarding, product discovery, controlled documents, deal registration, commercial agreements, quoting, MAF requests, orders and commissions.
 
-- React, TypeScript, Vite, React Router, and TanStack Query
-- FastAPI, SQLAlchemy 2, Pydantic, and Alembic
-- PostgreSQL with pgvector
-- Private MinIO object storage
-- JWT authentication, roles, permissions, audit events, structured logs, and request IDs
-- Idempotent master-data seeds and integration with existing PostgreSQL and MinIO services
+**Implementation baseline: 30 September 2026.** The public portal and four-model commercial implementation are present in source. The last verification passed 55 backend tests, static checks, production build, browser checks and isolated PostgreSQL migration tests. The configured application database refused connections during that verification; live migration and environment acceptance were not performed.
 
-Phase 1 adds partner access and management:
+## Documentation
 
-- Public partner self-registration with pending approval
-- TCG-created active partners and primary administrators
-- Partner type, tier, and country master data
-- Approval, rejection, suspension, reactivation, and rejection reasons
-- Partner profiles and partner-user administration
-- Backend-enforced TCG/partner role checks and partner data isolation
+| Document | Purpose |
+| --- | --- |
+| [Product requirements](docs/PRD.md) | Delivered scope, contractual inputs and known acceptance gaps |
+| [Commercial model](docs/Commercial-Model.md) | Authoritative Direct, Reseller, Referral and SI business decisions |
+| [Business rules](docs/Rules.md) | Current workflow, pricing and authorization rules |
+| [Architecture](docs/Architecture.md) | Actual code structure, persistence and access boundaries |
+| [UX design](docs/Design.md) | Public and authenticated routes, screens and interactions |
+| [Public portal](docs/Partner-Portal-UI.md) | Visual identity, registration and illustrative content |
+| [Operations guide](docs/Phase1-Implementation.md) | Setup, migrations, seeds, smoke tests and troubleshooting |
+| [Commercial implementation](docs/Commercial-Implementation.md) | Commercial APIs, migration compatibility and verification harnesses |
+| [Decision log](docs/Memory.md) | Current decisions and superseded assumptions |
+| [Delivery phases](docs/Phases.md) | Implemented milestones and deferred work |
 
-Product and pricing management includes:
+## Implemented capabilities
 
-- Extensible product and SKU master data
-- Effective-dated USD list prices
-- Configurable partner-type commercial rules and tier benefits
-- Effective-dated partner/SKU overrides
-- Deterministic partner price resolution with an admin-only calculation breakdown
-- Restricted partner pricing that never exposes another partner's terms
+- Responsive public landing, partnership paths, product/solution highlights, illustrative partner stories and a three-step application.
+- Partner approval, profiles, users and multiple capabilities: Reseller, Referral and System Integrator. There are no active partner tiers.
+- Explicit Direct, Reseller, Referral or System Integrator classification on each opportunity; shared organization identities, participants, responsibilities and solution components.
+- Effective USD catalog prices and approved commercial terms, with separate customer value, TCG entitlement, partner benefit, vendor obligations and commission expense.
+- Private documents, protected deals, pipeline history, immutable finalized quote revisions, contracting-party acceptance, MAF issuance and quote-based orders.
+- Referral forecasts, conversion-qualified accruals, append-only adjustments and recorded payments. Referral defaults to 10% of explicitly eligible revenue; actual eligibility and settlement policies must be configured.
+- Versioned migration, legacy review queue, backend authorization, audit records and a durable `ORDER_CONFIRMED` integration event.
 
-The remaining Phase 1 workflows add private documents, customers and protected deals, pipeline
-history, quote revisions and price snapshots, MAF review/issuance, and orders through activation
-with a durable `ORDER_CONFIRMED` event. Migration, seed, verification, and end-to-end smoke-test
-instructions are consolidated in [Phase 1 Implementation and Operations Guide](docs/Phase1-Implementation.md).
+## Local setup
 
-## Prerequisites
+Use Python 3.12+ and Node.js 22+ with versions compatible with the installed dependencies. PostgreSQL with pgvector and MinIO are managed outside this repository; no Docker Compose setup is included. The database must exist and the MinIO bucket must be private.
 
-- Python 3.12 or newer
-- Node.js 22 or newer
-- Running PostgreSQL and MinIO containers, reachable on the ports configured in `.env`
-- The PostgreSQL database named by `DATABASE_URL` already exists
-- The MinIO bucket named by `MINIO_BUCKET` already exists and is private
-
-## Environment
-
-Copy `.env.example` to `.env` only when `.env` does not already exist. Configure the PostgreSQL
-URL, MinIO endpoint and bucket, JWT secret, CORS origins, and seed administrator for your local
-services. `MINIO_ENDPOINT` is the MinIO S3 API endpoint, such as `localhost:9000`; it must not
-include `http://` or a path. Do not commit `.env`.
-
-## Use the existing PostgreSQL and MinIO services
-
-From the repository root, first confirm that both containers are running and exposing the expected
-ports:
+Run these commands from the repository root. Keep the existing `.env`; use `.env.example` only to create a missing file. Configure the database, storage, JWT, CORS and seed-admin settings without committing secrets. Set `SEED_ADMIN_PASSWORD` to at least 12 characters before running backend commands.
 
 ```powershell
-docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}"
-```
-
-Confirm that the output contains the PostgreSQL and MinIO containers and that their status is
-healthy/running. Then prepare the local Python environment:
-
-```powershell
-Set-Location C:\Users\nishi\Desktop\sales
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 if (-not (Test-Path .venv)) { python -m venv .venv }
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-& .\.venv\Scripts\Activate.ps1
-python -m pip install -e ".\backend[dev]"
+.\.venv\Scripts\python.exe -m pip install -e ".\backend[dev]"
+npm.cmd --prefix frontend ci
 ```
 
-Verify the resources configured in `.env` before applying changes:
+Take and verify a database backup before migrating an existing installation. Alembic commands run from **backend**, where `alembic.ini` and the migration directory reside:
 
 ```powershell
-# A successful response confirms that the configured PostgreSQL database exists and is reachable.
-alembic current
-
-# True confirms that the configured MinIO bucket exists.
-python -c "from app.core.config import settings; from app.storage.client import get_minio_client; print(get_minio_client().bucket_exists(settings.MINIO_BUCKET))"
+Push-Location backend
+..\.venv\Scripts\alembic.exe current
+..\.venv\Scripts\alembic.exe upgrade head
+..\.venv\Scripts\python.exe -m app.db.seed
+Pop-Location
+.\.venv\Scripts\python.exe -m app.storage.bootstrap
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
-If either check fails, correct `.env` or create the missing database/private bucket before
-continuing. Apply the schema and idempotent application setup from the repository root:
+In another terminal at the repository root:
 
 ```powershell
-alembic upgrade head
-python -m app.db.seed
-python -m app.storage.bootstrap
-uvicorn app.main:app --reload
+npm.cmd --prefix frontend run dev
 ```
 
-In a second terminal:
+Open [the public portal](http://localhost:5173), [partner sign-in](http://localhost:5173/login) or [API documentation](http://localhost:8000/docs). Authenticated users enter `/dashboard`; commercial configuration and ledgers are at `/commercial-model`.
 
-```powershell
-Set-Location frontend
-npm install
-npm run dev
-```
+`MINIO_ENDPOINT` is the S3 API host and port, without a URL scheme or path. Vite reads the root environment: `VITE_PROXY_TARGET` sets the development `/api` proxy target; optional `VITE_API_URL` changes the browser API base. Never place secrets in `VITE_*` variables.
 
-Open `http://localhost:5173`. API documentation is at `http://localhost:8000/docs`.
+The current schema head is `20260930_0005`. Seeds create roles, capabilities, countries, mcube/LVA development SKUs and the configured administrator. They do not invent catalog prices, reseller discounts or SI shares. The commercial migration inserts the initial 10% referral default. Review legacy opportunities and document grants before new commercial work; see the [operations guide](docs/Phase1-Implementation.md).
 
 ## Verification
 
-```powershell
-Invoke-RestMethod http://localhost:8000/api/v1/health/live
-Invoke-RestMethod http://localhost:8000/api/v1/health/ready
-
-python -m ruff check backend\app backend\tests backend\alembic
-python -m mypy --config-file backend\pyproject.toml backend\app
-python -m pytest -q backend
-
-Set-Location frontend
-npm run lint
-npm run build
-```
-
-The seed command is safe to rerun. It creates the agreed roles, their initial permissions, and a
-local administrator from the `SEED_ADMIN_*` values configured in `.env`.
-
-After pulling a new phase, apply its migration and master data before restarting the API:
+From the repository root:
 
 ```powershell
-alembic upgrade head
-python -m app.db.seed
+.\.venv\Scripts\ruff.exe check backend
+.\.venv\Scripts\mypy.exe backend/app --config-file backend/pyproject.toml
+.\.venv\Scripts\pytest.exe backend/tests -q
+npm.cmd --prefix frontend run lint
+npm.cmd --prefix frontend run build
 ```
+
+The [commercial verification guide](docs/Commercial-Implementation.md#verification) documents browser and disposable PostgreSQL migration checks. Browser tests use mocked APIs; they do not demonstrate live infrastructure readiness. Check `/api/v1/health/live` and `/api/v1/health/ready` when running against real services.
 
 ## API conventions
 
-- All public API routes start with `/api/v1`.
-- Identifiers are UUIDs and timestamps are UTC.
-- Errors use `{ "error": { "code", "message", "details", "request_id" } }`.
-- Clients may send `X-Request-ID`; otherwise the API creates one and returns it.
-- Protected routes use a bearer access token from `POST /api/v1/auth/token`.
-
-All Phase 1 routes are documented interactively at `http://localhost:8000/docs`. The public
-registration entry point is `http://localhost:5173/register`; authenticated users are routed to
-their role-aware workspace after login.
-
-The Phase 1B seed creates mcube and LVA with the suggested development SKUs and configurable
-placeholder commercial rules. It deliberately does not invent list prices; TCG Admin sets those
-from **Products & SKUs** before resolved partner pricing appears.
+Routes use `/api/v1`, UUID identifiers, UTC timestamps, ISO dates and USD decimal amounts. Protected requests use the bearer token issued by `POST /api/v1/auth/token`. Errors use an `error` object containing `code`, `message`, `details` and `request_id`; `X-Request-ID` is accepted and returned. OpenAPI is available at `/openapi.json`.

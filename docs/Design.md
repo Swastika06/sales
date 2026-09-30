@@ -1,398 +1,90 @@
-# Partner Portal — UX / Functional Design
-
-## 1. Design Principles
-
-- Keep partner workflows simple and guided.
-- Clearly separate TCG actions from Partner actions.
-- Never expose cross-partner confidential data.
-- Make status and next action obvious.
-- Avoid overwhelming users with future-phase functionality.
-- Use tables for operational lists and step/status components for workflows.
-- Use role-based navigation.
-- Show commercial values in USD.
-- Live FX, if shown, must be labeled approximate/informational.
-
-## 2. Primary Navigation
-
-### Partner User
-- Dashboard
-- Deals
-  - My Deals
-  - Register Deal
-- Pricing
-- Quotes
-- MAF Requests
-- Orders
-- Documents
-- Profile
-
-### Partner Admin
-All Partner User items plus:
-- Company Profile
-- Users
-
-### TCG Admin
-- Dashboard
-- Partners
-  - Pending Registrations
-  - Active Partners
-- Users
-- Customers
-- Deals
-  - Pending Approval
-  - All Deals
-- Products & SKUs
-- Pricing
-- Quotes
-- MAF Requests
-- Orders
-- Documents
-- Administration
-
-### TCG Sales
-- Dashboard
-- Customers
-- Deals
-- Quotes
-- Orders
-- Pricing (view)
-- Documents
-
-## 3. Dashboard Design
-
-### Partner Dashboard
-Suggested cards:
-- Open Deals
-- Deals Awaiting TCG Approval
-- Quotes in Progress
-- MAF Requests in Review
-- Orders in Progress
-
-Suggested lists:
-- Recent Deals
-- Recent Documents
-- Pending Actions
-
-### TCG Admin Dashboard
-Suggested cards:
-- Pending Partner Registrations
-- Deals Awaiting Approval
-- MAF Requests Awaiting Review
-- Orders Under Review
-- Active Partners
-
-## 4. Partner Registration
-
-### Self-Registration Screen
-Sections:
-1. Company
-2. Primary Contact
-3. Partner Type
-4. Territory
-5. Account Credentials
-6. Review & Submit
-
-After submission:
-- show Pending Approval
-- display request reference
-- explain that TCG will review
-
-### Admin Review Screen
-Show:
-- company details
-- contact
-- requested partner type
-- country
-- submitted date
-- approve/reject actions
-
-Reject requires reason.
-
-## 5. Partner Details
-
-Tabs:
-- Overview
-- Users
-- Commercial Terms
-- Documents
-- Activity
-
-Overview:
-- Partner code
-- Status
-- Type
-- Tier
-- Countries
-- Primary contact
-
-Commercial Terms:
-- Product
-- Commercial model
-- Tier
-- Partner override
-- Effective dates
-
-## 6. Deal Registration
-
-Use a multi-section form.
-
-### Customer
-- Customer selector
-- Create new customer
-- Country
-- Industry
-- Website
-
-### Deal
-- Deal name
-- Product
-- Estimated contract value USD
-- Expected close date
-- Description
-
-### Role & Commercial
-- Partner role on this deal
-- Commercial model
-- Partner Sales owner
-- TCG Sales owner if known
-
-### Contact
-- Name
-- Designation
-- Email
-- Phone
-
-### Attachments
-- Upload files
-
-Before submit:
-- run conflict check
-- block if active protected conflict exists
-- otherwise submit for review
-
-## 7. Deal Detail
-
-Header:
-- Deal number
-- Customer
-- Product
-- Partner
-- Approval status
-- Pipeline stage
-- Protection status
-
-Tabs:
-- Overview
-- Commercial
-- Activity
-- Files
-- Quotes
-- MAF
-- Orders
-
-## 8. Pipeline
-
-```text
-Registered → Qualified → Discovery → Demo → POC → Proposal → Negotiation → Won/Lost
-```
-
-Stage update dialog:
-- new stage
-- comment
-- required fields based on stage
-
-For Won:
-- Actual contract value
-- Close date
-
-For Lost:
-- Loss reason
-- Optional notes
-
-## 9. Pricing Screen
-
-Partner view:
-- Product/SKU
-- Description
-- Your Price (USD)
-- Effective From
-- Effective Until
-
-Do not show internal formulas unless explicitly allowed.
-
-Optional:
-- Approx local equivalent using live FX
-
-TCG Admin view:
-- List price
-- Partner type rule
-- Tier adjustment
-- Partner override
-- Final result
-
-## 10. Quote Design
-
-Quote builder:
-- Related deal
-- Customer
-- Product/SKU lines
-- Quantity
-- Term
-- List price
-- Discount
-- Final unit price
-- Line total
-- Implementation/service lines
-- Quote total
-- Validity
-- Notes
-
-Suggested statuses:
-- Draft
-- Under Review
-- Final
-- Accepted
-- Expired
-- Cancelled
-
-Keep revision history.
-
-## 11. MAF Design
-
-### Partner Request Screen
-- Related deal
-- Customer
-- Product(s)
-- Tender/RFP name
-- Tender number
-- Issuing organization
-- Deadline
-- Authorization purpose
-- Requested validity
-- Supporting document
-- Notes
-
-### Status Timeline
-- Draft
-- Submitted
-- Under Review
-- Returned
-- Approved
-- Issued
-
-### Admin Review
-Show:
-- Partner status/type/tier
-- Related approved deal
-- Tender details
-- Supporting docs
-
-Actions:
-- Return for correction
-- Reject
-- Approve
-- Upload/issue MAF
-
-## 12. Order Design
-
-### Create Order
-Start from accepted quote.
-
-Pre-fill:
-- Partner
-- Customer
-- Deal
-- Quote
-- Product lines
-- Commercial values
-
-Additional inputs:
-- PO number
-- PO date
-- PO/signed agreement
-- Billing details
-- Subscription term/start date
-- Requested fulfilment date
-- Implementation required
-- SOW reference
-
-### Status Timeline
-- Draft
-- Submitted
-- Under Review
-- Returned for Correction
-- Confirmed
-- Provisioning
-- Active
-
-### Review Screen
-TCG compares:
-- quote total
-- order total
-- discount
-- line items
-- PO details
-- billing details
-- scope
-
-Highlight variance.
-
-## 13. Documents
-
-### Repository List
-Filters:
-- Product
-- Category
-- Audience
-- Version
-- Date
-
-Fields:
-- Name
-- Product
-- Category
-- Version
-- Published date
-- Download
-
-### Admin Upload
-- Name
-- Product
-- Category
-- Description
-- Version
-- Visibility
-- File
-- Effective dates
-
-## 14. Tables
-
-Operational tables should support:
-- Search
-- Pagination
-- Sorting
-- Status filters
-- Partner filter for TCG
-- Product filter
-- Date filters
-
-## 15. Error UX
-
-Business-rule errors should be specific.
-
-Example:
-> An active protected deal already exists for this customer and product.
-
-## 16. Responsive Design
-
-Desktop-first is acceptable for Phase 1, but forms and critical workflows should remain usable on tablet/laptop widths.
-
-## 17. Accessibility
-
-Baseline:
-- keyboard navigation
-- proper form labels
-- visible focus states
-- semantic tables
-- status text, not color alone
-- sufficient contrast
+# Partner Portal — UX and Functional Design
+
+This document describes the implemented UI as of 30 September 2026. Unimplemented refinements are tracked in [PRD.md](PRD.md#24-known-acceptance-refinements), not presented as available screens.
+
+## 1. Experience and visual identity
+
+The public journey is discover TCG → compare partnership paths → explore illustrative success stories → apply. The authenticated journey is register a deal → configure parties and economics → approve → finalize/accept a quote → order or record qualifying commission.
+
+Public pages use a TCG identity of ivory, navy and burnt orange, DM Sans/Manrope with serif accents, and local SVG/CSS artwork. Workspace screens use deep green navigation, lime accents, light cards, forms and operational tables. Public CSS is scoped under `.portal`; reusable public sections and commercial editors keep spacing and behavior consistent.
+
+Partner paths describe capabilities, not ranks. There are no tier badges, tier selectors or tier-derived benefits. Commercial numbers remain USD; live FX is not implemented.
+
+## 2. Routes and navigation
+
+| Route | Implemented experience |
+| --- | --- |
+| `/` | Landing hero, overview/ecosystem, products/services, benefits, paths, stories and CTA |
+| `/partner-with-tcg` | Partnership benefits, ecosystem, onboarding steps and FAQs |
+| `/partner-levels` | Partnership paths, requirements and comparison; URL retained for compatibility |
+| `/partner-stories` | Manually controlled story carousel, narratives and product-information links |
+| `/register` | Public three-step application; optional `?type=RESELLER` preselection |
+| `/login` | Workspace sign-in |
+| `/dashboard` | User/account overview, links and internal commercial summary |
+| `/partners`, `/partners/new` | Partner listing/filtering and TCG-created partners |
+| `/partners/:partnerId`, `/partners/:partnerId/users` | Company profile, approval/status actions and user administration |
+| `/products`, `/pricing` | Catalog/SKU management and engagement-based resolved prices |
+| `/documents` | Document search/list, authorized download and common publication controls |
+| `/deals` | Deal creation, approval/submission and pipeline actions |
+| `/commercial-model` | Commercial structure, terms, agreements, snapshots, commissions and review queue |
+| `/commercial` | Quotes, MAF and Orders tabs |
+| `/system` | Service readiness |
+
+The authenticated sidebar labels `/commercial-model` as **Commercial model** for TCG and **My commissions** for partners. Actions are also enforced by the API. There are no standalone Customer Master or project-management pages in this version.
+
+## 3. Registration and partner management
+
+The public application has Company, Your details and Review steps. It captures company/contact details, country, a primary partnership interest and optional additional capabilities. It validates required fields, email/URL formats, a 12-character minimum password, confirmation and consent. Step navigation preserves entered data; passwords are not persisted to browser storage.
+
+Submission sends `capability_codes` and company/contact data to the registration API. Confirmation appears only after API success, with a reference and review/next-step explanation. Option-loading and submission failures support retry. Approval deadlines are not promised.
+
+TCG reviews requested capabilities and company details, approves or rejects with a reason, and controls status and capability changes. Partner administrators can edit permitted company/contact fields and manage their users. Profile pages show capabilities and countries. Commercial terms are managed in the commercial workspace, rather than through a tier assignment dialog.
+
+## 4. Deals and components
+
+The deal form begins with engagement model. TCG can select Direct without an external partner; other models require an active capable partner. Partners submit their own opportunities. The form captures product, name, customer/country, contact email, estimate and optional expected close date. TCG may link an existing customer organization.
+
+The list displays model, approval, stage and estimated value, with a link to commercial configuration or migration review. Internal configuration captures an accountable user, participants, scoped role assignments and product/service components. Roles include customer relationship owner, bidder, contracting seller, mcube seller, delivery lead, referrer, product owner, technology provider and bill-to.
+
+Participants have explicit capability, access and active controls. Components independently capture product owner, seller, delivery organization, billing organization and amount. SI responsibilities must be assigned explicitly. Errors identify missing roles, invalid capabilities, stale versions or required amendments.
+
+Stage actions collect actual value/date for Won and a reason for Lost. Direct/Referral stage management remains with TCG. Some existing operational actions use browser prompt dialogs; a richer guided deal editor remains a refinement.
+
+## 5. Commercial workspace
+
+| Tab | Behavior |
+| --- | --- |
+| Structure | Select model/partner, edit membership, scoped primary responsibilities and solution components; capture amendment reason |
+| Terms | TCG Admin drafts effective model-default, partner-agreement, opportunity or contract terms and approves versions |
+| Agreements | TCG Admin manages organization/vendor identities, partner/vendor agreements, linked costs and draft contracts |
+| Snapshots | TCG previews current approved terms, inspects frozen quote revisions and records conversion; partners see their own entitlement |
+| Commissions | Show accrued, paid and outstanding amounts separately; TCG Admin records referenced payments/adjustments under an agreed policy |
+| Migration review | TCG resolves legacy classification/structure before new commercial actions |
+
+TCG Sales can work with structure, snapshots and review; terms and agreement administration are TCG Admin controls. Partner workspace tabs are limited to Snapshots and Commissions.
+
+Referral terms expose the 10% model default and preserve an entered 0%. Eligibility explicitly captures components, eligible amount and discount/tax/vendor/credit/refund treatment. SI terms name the pool and denominator, allocation method, beneficiaries and residual; vendor deductions are explicit. Direct compensation is an optional, explicitly configured arrangement.
+
+Amounts are labeled forecast, snapshotted, accrued or paid. Customer value, TCG entitlement, partner benefit, vendor obligations and commission expense are separate. Reseller margin is shown only for reseller opportunities and remains undisclosed when the selling price is private. The internal dashboard totals the latest stored snapshot per opportunity; it is an operational forecast, not accounting revenue.
+
+## 6. Pricing and quote-to-order
+
+Pricing selects engagement model and, where required, partner. It shows product/SKU, unit and USD price; the admin receives resolved source names. Catalog/agreement previews do not substitute for opportunity/contract quote pricing.
+
+The quote builder inherits the deal model. It uses approved opportunities, SKU quantity and configured prices; manual extra line discounts are removed. SI quote creation requires the draft TCG contract reference from the commercial workspace. TCG finalization creates an immutable revision. Stale line pricing requires refresh, and commercial changes may require reapproval.
+
+The reseller CTA is **Accept wholesale quote**. Other acceptance follows the contracting-party rules; the backend rejects an unauthorized actor even if an action is visible. Orders select an accepted quote and capture billing details and a commitment attachment, followed by review/return, confirmation, provisioning and activation.
+
+MAF requests select an approved deal and real participating partner, capture tender details and supporting files, and require an issued document before issuance. Direct deals do not receive a fictitious partner solely to enable MAF.
+
+## 7. Documents, errors and accessibility
+
+The repository UI provides title/description search, metadata, current version and authorized download. Publishing exposes All Partners and TCG Internal. Capability/specific-partner scope and version APIs exist, but complete UI controls are deferred. Workflow attachment API coverage exceeds the current list/download controls in some screens.
+
+Business-rule errors are shown near the action; forms retain data where implemented. Stale commercial edits instruct the user to reload. Account changes clear cached organization data.
+
+Public layouts were checked at 320–1440px and commercial screens at desktop, tablet and 390px widths. Labels, focus states, semantic tables, keyboard controls, status text, reduced-motion support and automated WCAG A/AA scans are part of verification. Passing automated scans is not a substitute for complete manual accessibility acceptance.
+
+## 8. Content readiness
+
+Partner testimonials, people and success narratives are explicitly illustrative. Publish actual endorsements only after approved quotes/logos and verified metrics are supplied. No fabricated approval times or financial promises should replace the configured commercial terms. See [Partner-Portal-UI.md](Partner-Portal-UI.md) for public content and browser checks.

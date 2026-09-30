@@ -43,10 +43,10 @@ export function PartnersPage() {
         {partners.isError && <p className="notice notice--error">Could not load partners.</p>}
         {partners.data && partners.data.items.length === 0 && <div className="empty-state"><h2>No partners found</h2><p>Try changing the filters or create the first partner.</p></div>}
         {partners.data && partners.data.items.length > 0 && (
-          <div className="table-scroll"><table><thead><tr><th>Partner</th><th>Type</th><th>Tier</th><th>Territory</th><th>Status</th><th aria-label="Open" /></tr></thead><tbody>
+          <div className="table-scroll"><table><thead><tr><th>Partner</th><th>Capabilities</th><th>Territory</th><th>Status</th><th aria-label="Open" /></tr></thead><tbody>
             {partners.data.items.map((partner) => <tr key={partner.id}>
               <td><strong>{partner.company_name}</strong><small>{partner.code ?? "Awaiting approval"}</small></td>
-              <td>{partner.partner_type.name}</td><td>{partner.tier?.name ?? "—"}</td>
+              <td>{partner.capabilities.map(item => item.name).join(", ")}</td>
               <td>{partner.countries.map((country) => country.code).join(", ")}</td>
               <td><span className={`status-pill status-pill--${partner.status.toLowerCase()}`}>{statusLabels[partner.status]}</span></td>
               <td><Link className="row-link" to={`/partners/${partner.id}`} aria-label={`Open ${partner.company_name}`}>→</Link></td>

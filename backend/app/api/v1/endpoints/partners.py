@@ -18,7 +18,7 @@ from app.domain.access import (
     role_codes,
 )
 from app.models.identity import Role, User
-from app.models.partner import Country, Partner, PartnerStatus, PartnerTier, PartnerType
+from app.models.partner import Country, Partner, PartnerStatus, PartnerType
 from app.schemas.partner import (
     AdminPartnerCreate,
     MasterDataItem,
@@ -39,7 +39,6 @@ from app.services.partners import (
     create_partner,
     ensure_email_available,
     get_countries,
-    get_partner_tier,
     get_partner_type,
     get_roles,
     load_partner,
@@ -89,11 +88,6 @@ async def registration_options(session: AsyncSession = Depends(get_db)) -> Regis
             select(PartnerType).where(PartnerType.is_active.is_(True)).order_by(PartnerType.name)
         )
     )
-    tiers = list(
-        await session.scalars(
-            select(PartnerTier).where(PartnerTier.is_active.is_(True)).order_by(PartnerTier.rank)
-        )
-    )
     countries = list(
         await session.scalars(
             select(Country).where(Country.is_active.is_(True)).order_by(Country.name)
@@ -106,7 +100,6 @@ async def registration_options(session: AsyncSession = Depends(get_db)) -> Regis
     )
     return RegistrationOptions(
         partner_types=[MasterDataItem.model_validate(value) for value in partner_types],
-        partner_tiers=[MasterDataItem.model_validate(value) for value in tiers],
         countries=[MasterDataItem.model_validate(value) for value in countries],
         partner_roles=[MasterDataItem.model_validate(value) for value in partner_roles],
     )
@@ -181,7 +174,7 @@ async def list_partners(
     if partner_status:
         filters.append(Partner.status == partner_status)
     if partner_type:
-        filters.append(Partner.partner_type.has(code=partner_type.upper()))
+        filters.append(Partner.capabilities.any(code=partner_type.upper()))
     if filters:
         statement = statement.where(*filters)
         count_statement = count_statement.where(*filters)
@@ -222,18 +215,25 @@ async def update_partner(
     require_partner_management(user, partner_id)
     partner = await load_partner(session, partner_id)
     changes = payload.model_dump(exclude_unset=True)
-    controlled = {"partner_type_code", "tier_code"}
+    controlled = {"partner_type_code", "capability_codes"}
     if not is_tcg_admin(user) and controlled & changes.keys():
-        raise HTTPException(status_code=403, detail="Only TCG Admin can change type or tier")
+        raise HTTPException(status_code=403, detail="Only TCG Admin can change capabilities")
     old_values = {
         key: getattr(partner, key, None)
         for key in changes
-        if key not in {"country_codes", "partner_type_code", "tier_code"}
+        if key not in {"country_codes", "partner_type_code", "capability_codes"}
     }
     if "partner_type_code" in changes:
         partner.partner_type = await get_partner_type(session, changes.pop("partner_type_code"))
-    if "tier_code" in changes:
-        partner.tier = await get_partner_tier(session, changes.pop("tier_code"))
+        partner.capabilities = [partner.partner_type]
+    if "capability_codes" in changes:
+        codes = changes.pop("capability_codes")
+        if codes is None:
+            raise HTTPException(422, "Capabilities cannot be null")
+        partner.capabilities = [
+            await get_partner_type(session, code.strip().upper()) for code in dict.fromkeys(codes)
+        ]
+        partner.partner_type = partner.capabilities[0]
     if "country_codes" in changes:
         partner.countries = await get_countries(session, changes.pop("country_codes"))
     for key, value in changes.items():
@@ -269,7 +269,6 @@ async def approve_partner(
     partner = await load_partner(session, partner_id)
     if partner.status != PartnerStatus.PENDING_APPROVAL:
         raise HTTPException(status_code=409, detail="Only pending partners can be approved")
-    partner.tier = await get_partner_tier(session, payload.tier_code)
     partner.status = PartnerStatus.ACTIVE
     partner.rejection_reason = None
     partner.approved_by_id = user.id
@@ -285,7 +284,10 @@ async def approve_partner(
         actor_user_id=user.id,
         actor_role=actor_role(user),
         old_values={"status": PartnerStatus.PENDING_APPROVAL},
-        new_values={"status": PartnerStatus.ACTIVE, "tier": partner.tier.code},
+        new_values={
+            "status": PartnerStatus.ACTIVE,
+            "capabilities": [c.code for c in partner.capabilities],
+        },
         request_id=request.state.request_id,
     )
     await session.commit()

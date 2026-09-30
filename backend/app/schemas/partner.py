@@ -1,7 +1,15 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    HttpUrl,
+    field_validator,
+    model_validator,
+)
 
 from app.models.partner import PartnerStatus
 
@@ -16,15 +24,16 @@ class MasterDataItem(BaseModel):
 
 class RegistrationOptions(BaseModel):
     partner_types: list[MasterDataItem]
-    partner_tiers: list[MasterDataItem]
     countries: list[MasterDataItem]
     partner_roles: list[MasterDataItem]
 
 
 class PartnerRegistrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     company_name: str = Field(min_length=2, max_length=200)
     legal_name: str | None = Field(default=None, max_length=200)
-    partner_type_code: str
+    partner_type_code: str | None = None
+    capability_codes: list[str] = Field(default_factory=list, max_length=3)
     country_codes: list[str] = Field(min_length=1, max_length=25)
     website: HttpUrl | None = None
     company_email: EmailStr
@@ -37,8 +46,20 @@ class PartnerRegistrationRequest(BaseModel):
 
     @field_validator("partner_type_code")
     @classmethod
-    def normalize_partner_type(cls, value: str) -> str:
-        return value.strip().upper()
+    def normalize_partner_type(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value else None
+
+    @model_validator(mode="after")
+    def normalize_capabilities(self) -> "PartnerRegistrationRequest":
+        codes = self.capability_codes or (
+            [self.partner_type_code] if self.partner_type_code else []
+        )
+        self.capability_codes = list(dict.fromkeys(code.strip().upper() for code in codes))
+        allowed = {"RESELLER", "REFERRAL", "SYSTEM_INTEGRATOR"}
+        if not self.capability_codes or not set(self.capability_codes) <= allowed:
+            raise ValueError("Select one or more valid partner capabilities")
+        self.partner_type_code = self.capability_codes[0]
+        return self
 
     @field_validator("country_codes")
     @classmethod
@@ -50,19 +71,15 @@ class PartnerRegistrationRequest(BaseModel):
 
 
 class AdminPartnerCreate(PartnerRegistrationRequest):
-    tier_code: str = "SILVER"
-
-    @field_validator("tier_code")
-    @classmethod
-    def normalize_tier(cls, value: str) -> str:
-        return value.strip().upper()
+    organization_id: UUID | None = None
 
 
 class PartnerUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     company_name: str | None = Field(default=None, min_length=2, max_length=200)
     legal_name: str | None = Field(default=None, max_length=200)
     partner_type_code: str | None = None
-    tier_code: str | None = None
+    capability_codes: list[str] | None = Field(default=None, min_length=1, max_length=3)
     country_codes: list[str] | None = Field(default=None, min_length=1, max_length=25)
     website: HttpUrl | None = None
     company_email: EmailStr | None = None
@@ -72,7 +89,7 @@ class PartnerUpdate(BaseModel):
     primary_contact_email: EmailStr | None = None
     primary_contact_phone: str | None = Field(default=None, max_length=50)
 
-    @field_validator("partner_type_code", "tier_code")
+    @field_validator("partner_type_code")
     @classmethod
     def normalize_optional_code(cls, value: str | None) -> str | None:
         return value.strip().upper() if value else value
@@ -89,12 +106,7 @@ class PartnerUpdate(BaseModel):
 
 
 class PartnerDecisionRequest(BaseModel):
-    tier_code: str = "SILVER"
-
-    @field_validator("tier_code")
-    @classmethod
-    def normalize_tier(cls, value: str) -> str:
-        return value.strip().upper()
+    model_config = ConfigDict(extra="forbid")
 
 
 class PartnerRejectionRequest(BaseModel):
@@ -123,7 +135,8 @@ class PartnerRead(BaseModel):
     rejection_reason: str | None
     approved_at: datetime | None
     partner_type: MasterDataItem
-    tier: MasterDataItem | None
+    capabilities: list[MasterDataItem]
+    organization_id: UUID | None
     countries: list[MasterDataItem]
     created_at: datetime
     updated_at: datetime

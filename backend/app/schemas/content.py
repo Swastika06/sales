@@ -27,7 +27,6 @@ class DocumentRead(BaseModel):
     visibility: str
     product_id: UUID | None
     partner_type_id: UUID | None
-    partner_tier_id: UUID | None
     partner_id: UUID | None
     is_active: bool
     versions: list[DocumentVersionRead]

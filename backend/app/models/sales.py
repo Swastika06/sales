@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -74,6 +75,9 @@ class OrderStatus(StrEnum):
 class Customer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "customers"
 
+    organization_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(200), index=True)
     legal_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     website: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -87,6 +91,15 @@ class Customer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class Opportunity(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "opportunities"
     __table_args__ = (
+        CheckConstraint(
+            "engagement_model IS NULL OR engagement_model IN "
+            "('DIRECT','RESELLER','REFERRAL','SYSTEM_INTEGRATOR')",
+            name="engagement_model",
+        ),
+        CheckConstraint(
+            "migration_review_required OR engagement_model IS NOT NULL",
+            name="classified_engagement",
+        ),
         CheckConstraint(
             "approval_status IN ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED')",
             name="valid_approval_status",
@@ -103,9 +116,13 @@ class Opportunity(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
     )
 
+    engagement_model: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    commercial_version: Mapped[int] = mapped_column(default=0, server_default="0")
+    migration_review_required: Mapped[bool] = mapped_column(default=False, server_default="false")
+    responsible_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     reference: Mapped[str] = mapped_column(String(30), unique=True, index=True)
-    partner_id: Mapped[UUID] = mapped_column(
-        ForeignKey("partners.id", ondelete="RESTRICT"), index=True
+    partner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("partners.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     customer_id: Mapped[UUID] = mapped_column(
         ForeignKey("customers.id", ondelete="RESTRICT"), index=True
@@ -158,7 +175,7 @@ class OpportunityStageHistory(UUIDPrimaryKeyMixin, Base):
     note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     changed_by_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     changed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     opportunity: Mapped[Opportunity] = relationship(back_populates="stage_history")
@@ -192,11 +209,14 @@ class Quote(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     opportunity_id: Mapped[UUID] = mapped_column(
         ForeignKey("opportunities.id", ondelete="RESTRICT"), index=True
     )
-    partner_id: Mapped[UUID] = mapped_column(
-        ForeignKey("partners.id", ondelete="RESTRICT"), index=True
+    partner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("partners.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     status: Mapped[str] = mapped_column(
         String(30), default=QuoteStatus.DRAFT, server_default="DRAFT", index=True
+    )
+    contract_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("commercial_contracts.id", use_alter=True), nullable=True
     )
     commercial_model: Mapped[str] = mapped_column(String(50), default="RESELLER")
     valid_until: Mapped[date | None] = mapped_column(nullable=True)
@@ -246,7 +266,7 @@ class QuoteRevision(UUIDPrimaryKeyMixin, Base):
     snapshot: Mapped[dict[str, object]] = mapped_column(JSONB)
     created_by_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     quote: Mapped[Quote] = relationship(back_populates="revisions")
@@ -283,8 +303,8 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     quote_id: Mapped[UUID] = mapped_column(
         ForeignKey("quotes.id", ondelete="RESTRICT"), unique=True, index=True
     )
-    partner_id: Mapped[UUID] = mapped_column(
-        ForeignKey("partners.id", ondelete="RESTRICT"), index=True
+    partner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("partners.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     status: Mapped[str] = mapped_column(String(40), default=OrderStatus.DRAFT, index=True)
     billing_name: Mapped[str] = mapped_column(String(200))
@@ -317,7 +337,7 @@ class OrderStatusHistory(UUIDPrimaryKeyMixin, Base):
     note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     changed_by_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     changed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     order: Mapped[Order] = relationship(back_populates="status_history")
@@ -331,6 +351,6 @@ class DomainEvent(UUIDPrimaryKeyMixin, Base):
     aggregate_id: Mapped[UUID] = mapped_column(index=True)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

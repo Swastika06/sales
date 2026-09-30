@@ -6,17 +6,20 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.api.dependencies import get_current_user
 from app.api.v1.endpoints.workflow_common import MAX_UPLOAD_BYTES
 from app.db.session import get_db
 from app.domain.access import is_tcg_admin, is_tcg_user
 from app.domain.documents import can_access_document
+from app.models.commercial import CommercialContract, VendorAgreement
 from app.models.content import Document, DocumentCategory, DocumentVersion, DocumentVisibility
 from app.models.identity import User
 from app.models.partner import Partner
 from app.schemas.content import DocumentRead, DownloadRead
 from app.services.audit import record_audit_event
+from app.services.commercial_access import visible_contract_ids
 from app.storage.client import presigned_download_url, put_private_object
 
 router = APIRouter()
@@ -42,14 +45,32 @@ async def partner_context(session: AsyncSession, user: User) -> Partner | None:
     return await session.get(Partner, user.partner_id)
 
 
+def commercial_document_scope(user: User) -> tuple[ColumnElement[bool], ColumnElement[bool]]:
+    vendor_docs = select(VendorAgreement.document_id).where(
+        VendorAgreement.document_id.is_not(None)
+    )
+    unshared_contract_docs = select(CommercialContract.document_id).where(
+        CommercialContract.document_id.is_not(None),
+        CommercialContract.id.not_in(visible_contract_ids(user)),
+    )
+    return ~Document.id.in_(vendor_docs), ~Document.id.in_(unshared_contract_docs)
+
+
 async def require_document_access(session: AsyncSession, user: User, document: Document) -> None:
     partner = await partner_context(session, user)
+    if not is_tcg_user(user) and not await session.scalar(
+        select(Document.id).where(Document.id == document.id, *commercial_document_scope(user))
+    ):
+        raise HTTPException(404, "Document not found")
+    if not document.is_active:
+        raise HTTPException(404, "Document not found")
     if not can_access_document(
         visibility=document.visibility,
         is_tcg=is_tcg_user(user),
         user_partner_id=user.partner_id,
         user_partner_type_id=partner.partner_type_id if partner else None,
-        user_partner_tier_id=partner.tier_id if partner else None,
+        user_partner_tier_id=None,
+        user_capability_ids={c.id for c in partner.capabilities} if partner else set(),
         document_partner_id=document.partner_id,
         document_partner_type_id=document.partner_type_id,
         document_partner_tier_id=document.partner_tier_id,
@@ -63,10 +84,8 @@ def validate_scope(
     partner_type_id: UUID | None,
     partner_tier_id: UUID | None,
 ) -> None:
-    missing_scope = (
-        (visibility == DocumentVisibility.SPECIFIC_PARTNER and partner_id is None)
-        or (visibility == DocumentVisibility.PARTNER_TYPE and partner_type_id is None)
-        or (visibility == DocumentVisibility.PARTNER_TIER and partner_tier_id is None)
+    missing_scope = (visibility == DocumentVisibility.SPECIFIC_PARTNER and partner_id is None) or (
+        visibility == DocumentVisibility.PARTNER_TYPE and partner_type_id is None
     )
     if missing_scope:
         raise HTTPException(status_code=422, detail=f"A scope id is required for {visibility}")
@@ -119,6 +138,8 @@ async def list_documents(
         .options(selectinload(Document.versions))
         .order_by(Document.updated_at.desc())
     )
+    if not is_tcg_user(user):
+        statement = statement.where(*commercial_document_scope(user))
     if search:
         term = f"%{search.strip()}%"
         statement = statement.where(
@@ -138,7 +159,8 @@ async def list_documents(
             is_tcg=is_tcg_user(user),
             user_partner_id=user.partner_id,
             user_partner_type_id=partner.partner_type_id if partner else None,
-            user_partner_tier_id=partner.tier_id if partner else None,
+            user_partner_tier_id=None,
+            user_capability_ids={c.id for c in partner.capabilities} if partner else set(),
             document_partner_id=document.partner_id,
             document_partner_type_id=document.partner_type_id,
             document_partner_tier_id=document.partner_tier_id,
@@ -156,7 +178,6 @@ async def create_document(
     description: str | None = Form(None),
     product_id: UUID | None = Form(None),
     partner_type_id: UUID | None = Form(None),
-    partner_tier_id: UUID | None = Form(None),
     partner_id: UUID | None = Form(None),
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
@@ -165,7 +186,7 @@ async def create_document(
     require_admin(user)
     if category not in DocumentCategory or visibility not in DocumentVisibility:
         raise HTTPException(status_code=422, detail="Invalid document category or visibility")
-    validate_scope(visibility, partner_id, partner_type_id, partner_tier_id)
+    validate_scope(visibility, partner_id, partner_type_id, None)
     document = Document(
         title=title.strip(),
         description=description,
@@ -173,7 +194,6 @@ async def create_document(
         visibility=visibility,
         product_id=product_id,
         partner_type_id=partner_type_id,
-        partner_tier_id=partner_tier_id,
         partner_id=partner_id,
         created_by_id=user.id,
     )

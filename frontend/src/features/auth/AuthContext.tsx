@@ -32,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: Boolean(token && userQuery.data),
       login: async (email: string, password: string) => {
         const accessToken = await requestLogin(email, password);
+        queryClient.clear();
         localStorage.setItem(TOKEN_KEY, accessToken);
         setToken(accessToken);
         await queryClient.invalidateQueries({ queryKey: ["current-user"] });
@@ -39,7 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout: () => {
         localStorage.removeItem(TOKEN_KEY);
         setToken(null);
-        queryClient.removeQueries({ queryKey: ["current-user"] });
+        queryClient.clear();
       },
     }),
     [queryClient, token, userQuery.data, userQuery.isLoading],

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     auth,
+    commercial,
     deals,
     documents,
     health,
@@ -23,3 +24,5 @@ api_router.include_router(deals.router, prefix="/deals", tags=["deals"])
 api_router.include_router(quotes.router, prefix="/quotes", tags=["quotes"])
 api_router.include_router(operations.maf_router, prefix="/maf", tags=["maf"])
 api_router.include_router(operations.orders_router, prefix="/orders", tags=["orders"])
+
+api_router.include_router(commercial.router, prefix="/commercial", tags=["commercial"])
