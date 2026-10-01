@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partner-backend
+  labels:
+    app.kubernetes.io/name: partner-backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: partner-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: partner-backend
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Add imagePullSecrets here when YOUR_REGISTRY requires authentication.
+      # imagePullSecrets:
+      #   - name: partner-registry
+
+      containers:
+        - name: api
+          image: YOUR_REGISTRY/partner-portal-api:v1
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn"]
+          args:
+            - "app.main:app"
+            - "--host=0.0.0.0"
+            - "--port=8000"
+            - "--proxy-headers"
+            - "--forwarded-allow-ips=$(FORWARDED_ALLOW_IPS)"
+          envFrom:
+            - configMapRef:
+                name: partner-backend-config
+            - secretRef:
+                name: partner-backend-secret
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: api-tmp
+              mountPath: /tmp
+
+        - name: mail-worker
+          image: YOUR_REGISTRY/partner-portal-api:v1
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "app.services.onboarding_mail"]
+          envFrom:
+            - configMapRef:
+                name: partner-backend-config
+            - secretRef:
+                name: partner-backend-secret
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: worker-tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: api-tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: worker-tmp
+          emptyDir:
+            sizeLimit: 64Mi

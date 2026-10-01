@@ -22,13 +22,13 @@ The commercial replacement supersedes tier-based pricing, provisional reseller d
 
 ## Remaining rollout and acceptance work
 
-1. Verify the target database/storage configuration and backup; apply through `20260930_0005`, run seeds and verify the private bucket.
+1. Verify the target database/storage configuration and backup; apply through `20261001_0006`, run seeds, verify the private bucket, and review pending Reseller/Referral users that the onboarding migration deactivates.
 2. Review migrated capabilities, internalized tier-scoped documents and every legacy opportunity before new commercial execution.
 3. Configure approved catalog prices, wholesale/SI terms, referral eligibility and settlement policies.
 4. Run the live role-isolation, document, four-model quote/order and commission smoke tests in the [operations guide](Phase1-Implementation.md).
 5. Complete stakeholder review, manual accessibility acceptance and approved public partner content.
 
-The configured database refused connections during the last implementation verification, so live migration and end-to-end acceptance remain unverified. The source baseline passed 55 backend tests, static/build checks, mocked browser checks and isolated PostgreSQL migration tests. See [Commercial-Implementation.md](Commercial-Implementation.md#verification) for evidence and limits.
+The configured database refused connections during the earlier implementation verification, so live migration and end-to-end acceptance remain unverified. The current source passes 69 backend tests, Ruff, strict Mypy, frontend lint/build and mocked onboarding/workspace browser checks. Revision `0006`, ClamAV and SMTP still require live acceptance. See [Commercial-Implementation.md](Commercial-Implementation.md#verification) and [onboarding.md](onboarding.md#verification) for evidence and limits.
 
 ## Acceptance refinements
 

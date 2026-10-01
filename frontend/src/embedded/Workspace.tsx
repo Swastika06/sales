@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, MemoryRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { workspaceRoutes } from "../app/WorkspaceRoutes";
 import { AuthProvider } from "../features/auth/AuthContext";
+import { PublicLayout } from "../features/portal/PublicLayout";
 import { LoginPage } from "../pages/LoginPage";
 
 interface WorkspaceProps {
@@ -29,11 +30,16 @@ function WorkspaceContent({ onExit }: Pick<WorkspaceProps, "onExit">) {
     }
   }, [location.pathname]);
   return <div ref={root}>
-    <div className="embedded-workspace-toolbar"><Link to="/">Back to Partner Network</Link></div>
+    {location.pathname !== "/login" && <div className="embedded-workspace-toolbar"><Link to="/">Back to Partner Network</Link></div>}
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      <Route element={<PublicLayout embedded />}>
+        <Route path="/login" element={<LoginPage />} />
+      </Route>
       {workspaceRoutes()}
       <Route path="/" element={<PublicPage onExit={onExit} />} />
+      <Route path="/partner-with-tcg" element={<PublicPage onExit={onExit} />} />
+      <Route path="/partner-levels" element={<PublicPage onExit={onExit} />} />
+      <Route path="/partner-stories" element={<PublicPage onExit={onExit} />} />
       <Route path="/register" element={<PublicPage onExit={onExit} />} />
       <Route path="/onboarding" element={<PublicPage onExit={onExit} />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

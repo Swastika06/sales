@@ -113,9 +113,9 @@ Downloads are authorized and signed for ten minutes. Uploads must be nonempty an
 
 ## 21. Acceptance Status
 
-The source baseline has 55 passing backend tests plus successful Ruff, strict Mypy, frontend type/build and ESLint checks recorded on 30 September 2026. Mocked public/commercial browser checks cover responsive layouts, forms, role views and automated accessibility. An isolated PostgreSQL migration harness checks fresh and legacy upgrades through `20260930_0005`.
+The 1 October source has 69 passing backend tests plus successful Ruff, strict Mypy, frontend type/build, ESLint and mocked onboarding/workspace browser checks. The earlier isolated PostgreSQL harness checked fresh and legacy commercial upgrades through `20260930_0005`; revision `20261001_0006` and live PostgreSQL/MinIO/ClamAV/SMTP behavior still require acceptance.
 
-These checks do not establish live deployment acceptance. The configured database refused connections during the implementation verification; no application database migration was applied. Live database/MinIO and stakeholder-data journeys remain to be verified using the [operations guide](Phase1-Implementation.md).
+These checks do not establish live deployment acceptance. The configured database refused connections during the earlier implementation verification; no application database migration was applied. Live database, MinIO, ClamAV, SMTP and stakeholder-data journeys remain to be verified using the [operations guide](Phase1-Implementation.md).
 
 ## 22. Required Business Configuration
 
@@ -123,7 +123,7 @@ Supply approved catalog prices, reseller wholesale terms, SI allocation agreemen
 
 ## 23. Technical Baseline
 
-React/TypeScript/Vite uses React Router and TanStack Query. FastAPI exposes `/api/v1`, JWT authentication and backend authorization. SQLAlchemy async sessions, PostgreSQL/pgvector, Alembic and private MinIO provide persistence. The schema head is `20260930_0005`; immutable financial history and audit records preserve approved outcomes. See [Architecture.md](Architecture.md) for actual entities and transaction boundaries.
+React/TypeScript/Vite uses React Router and TanStack Query. FastAPI exposes `/api/v1`, JWT authentication and backend authorization. SQLAlchemy async sessions, PostgreSQL/pgvector, Alembic and private MinIO provide persistence; production onboarding adds ClamAV, TLS SMTP and a durable mail worker. The schema head is `20261001_0006`; immutable financial history, onboarding review state and audit records preserve approved outcomes. See [Architecture.md](Architecture.md) for actual entities and transaction boundaries.
 
 ## 24. Known Acceptance Refinements
 

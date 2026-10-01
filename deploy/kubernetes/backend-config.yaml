@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: partner-backend-config
+  labels:
+    app.kubernetes.io/name: partner-backend
+data:
+  APP_ENV: "production"
+  APP_DEBUG: "false"
+  LOG_LEVEL: "INFO"
+  API_V1_PREFIX: "/api/v1"
+
+  # Replace these with the browser-facing portal origin. Separate multiple
+  # CORS origins with commas and do not include a trailing slash.
+  CORS_ORIGINS: "https://partners.example.com"
+  PUBLIC_PORTAL_URL: "https://partners.example.com"
+
+  # This hostname is embedded in presigned URLs and must resolve in browsers.
+  # Do not include https:// or a path.
+  MINIO_ENDPOINT: "storage.example.com"
+  MINIO_SECURE: "true"
+  MINIO_BUCKET: "partner-portal"
+
+  SMTP_HOST: "smtp.example.com"
+  SMTP_PORT: "587"
+  SMTP_FROM: "partners@example.com"
+  SMTP_STARTTLS: "true"
+  SMTP_SSL: "false"
+
+  # Name of the separately deployed ClamAV Kubernetes Service.
+  CLAMAV_HOST: "clamav"
+  CLAMAV_PORT: "3310"
+
+  JWT_ALGORITHM: "HS256"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  SEED_ADMIN_EMAIL: "admin@example.com"
+  SEED_ADMIN_NAME: "TCG Administrator"
+
+  # Replace '*' with the Ingress proxy IPs when possible. Keep '*' only when
+  # the ClusterIP Service is not publicly reachable and the Ingress controller
+  # removes or overwrites untrusted forwarded headers.
+  FORWARDED_ALLOW_IPS: "*"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: partner-backend-secret
+  labels:
+    app.kubernetes.io/name: partner-backend
+type: Opaque
+stringData:
+  # This file is a template. Replace every required value before applying it,
+  # or create this Secret through your cluster's secret-management system.
+  DATABASE_URL: "postgresql+asyncpg://REPLACE_USER:REPLACE_PASSWORD@postgres:5432/partner_portal"
+  MINIO_ACCESS_KEY: ""
+  MINIO_SECRET_KEY: ""
+  JWT_SECRET_KEY: ""
+  SMTP_USERNAME: ""
+  SMTP_PASSWORD: ""
+  SEED_ADMIN_PASSWORD: ""

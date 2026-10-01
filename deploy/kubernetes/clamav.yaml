@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clamav
+  labels:
+    app.kubernetes.io/name: clamav
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clamav
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clamav
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: clamav
+          # Pin the reviewed release rather than using latest/stable in a
+          # production deployment. Update this deliberately with test scans.
+          image: clamav/clamav:1.5.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CLAMD_CONF_TCPAddr
+              value: "0.0.0.0"
+            - name: CLAMD_CONF_TCPSocket
+              value: "3310"
+            # The backend accepts files up to 10 MB. Keep scanner stream/file
+            # limits above that value to allow protocol overhead.
+            - name: CLAMD_CONF_StreamMaxLength
+              value: "12M"
+            - name: CLAMD_CONF_MaxFileSize
+              value: "12M"
+          ports:
+            - name: clamd
+              containerPort: 3310
+              protocol: TCP
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - test "$(printf 'PING\n' | nc -w 2 127.0.0.1 3310)" = PONG
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - test "$(printf 'PING\n' | nc -w 2 127.0.0.1 3310)" = PONG
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - test "$(printf 'PING\n' | nc -w 2 127.0.0.1 3310)" = PONG
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - NET_RAW
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clamav
+  labels:
+    app.kubernetes.io/name: clamav
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: clamav
+  ports:
+    - name: clamd
+      port: 3310
+      targetPort: clamd
+      protocol: TCP

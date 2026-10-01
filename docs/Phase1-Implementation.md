@@ -1,20 +1,20 @@
 # Phase 1 Implementation and Operations Guide
 
-Updated **30 September 2026** for the public portal and commercial replacement. Use [PRD.md](PRD.md) for scope, [Architecture.md](Architecture.md) for actual entities and [Commercial-Implementation.md](Commercial-Implementation.md) for commercial APIs and migration verification.
+Updated **1 October 2026** for the public portal, commercial replacement and document-based partner onboarding. Use [PRD.md](PRD.md) for scope, [Architecture.md](Architecture.md) for actual entities, [Commercial-Implementation.md](Commercial-Implementation.md) for commercial APIs and migration verification, and [onboarding.md](onboarding.md) for the detailed applicant/Legal workflow.
 
 The last implementation verification could not connect to the configured application database. No live migration was applied. The instructions below are the rollout procedure, not a record that deployment has occurred.
 
 ## 1. Delivered Scope
 
-The application provides public onboarding, multi-capability partner administration, catalog/pricing, private content, deals/pipeline, versioned commercial agreements, quotes, MAF, orders and commission records. Every new opportunity selects Direct, Reseller, Referral or System Integrator. Direct needs no external partner. Tiers are retired from active classification, pricing and document grants.
+The application provides public onboarding, multi-capability partner administration, catalog/pricing, private content, deals/pipeline, versioned commercial agreements, quotes, MAF, orders and commission records. Reseller and Referral applicants upload company, PAN and GSTIN documents for assigned Legal review, then activate through an emailed OTP. Every new opportunity selects Direct, Reseller, Referral or System Integrator. Direct needs no external partner. Tiers are retired from active classification, pricing and document grants.
 
 Commercial terms resolve contract → opportunity → effective partner agreement → engagement default → catalog. Quotes freeze approved economics; orders copy accepted revisions. Commission requires Won plus recorded conversion, with settlement recorded separately. `ORDER_CONFIRMED` is persisted without an external publisher.
 
 ## 2. Prerequisites and Dependencies
 
-Use Python 3.12+ and Node.js 22+ compatible with the installed dependencies. PostgreSQL and MinIO run outside this repository. The database must exist, and the database account must be able to apply migrations and enable `vector`.
+Use Python 3.12+ and Node.js 22+ compatible with the installed dependencies. PostgreSQL and MinIO run outside this repository. The database must exist, and the database account must be able to apply migrations and enable `vector`. Production onboarding also requires a reachable ClamAV daemon supporting INSTREAM on TCP 3310, a TLS-enabled SMTP service, and a continuously running onboarding mail worker.
 
-Keep the intended root `.env`; create it from `.env.example` only when missing. Verify database, MinIO, JWT, CORS and seed-admin configuration without committing credentials. Set `SEED_ADMIN_PASSWORD` to at least 12 characters before running backend commands. `MINIO_ENDPOINT` is the S3 host/port, without a scheme/path; it is not the console URL. Vite reads the root environment. `VITE_PROXY_TARGET` controls the development `/api` proxy; optional `VITE_API_URL` sets the browser API base. Never expose secrets in `VITE_*` variables.
+Keep the intended root `.env`; create it from `.env.example` only when missing. Verify database, MinIO, JWT, CORS, seed-admin, portal URL, SMTP and ClamAV configuration without committing credentials. Set `SEED_ADMIN_PASSWORD` to at least 12 characters and keep `JWT_SECRET_KEY` stable while onboarding mail is pending because it encrypts queued payloads. Production requires an HTTPS `PUBLIC_PORTAL_URL`, TLS-enabled SMTP and `CLAMAV_HOST`. `MINIO_ENDPOINT` is the S3 host/port, without a scheme/path; it is not the console URL. Presigned downloads use that endpoint, so it must resolve in applicant/admin browsers as well as from the API. Vite reads the root environment. `VITE_PROXY_TARGET` controls the development `/api` proxy; optional `VITE_API_URL` sets the browser API base. Never expose secrets in `VITE_*` variables.
 
 From the repository root:
 
@@ -34,30 +34,29 @@ npm.cmd --prefix frontend ci
 | `20260923_0003` | Catalog and original pricing schema |
 | `20260923_0004` | Content, customers, deals, quotes, MAF, orders and events |
 | `20260930_0005` | Organizations, capabilities, commercial participation/terms/contracts, snapshots, conversion and commission ledger |
+| `20261001_0006` | Private onboarding documents, Legal review, OTP activation, durable mail and rate limits |
 
-Alembic must run from **backend**, which contains `alembic.ini`. To render the entire migration chain without connecting to a database, start from the repository root:
+The root `alembic.ini` resolves the backend migration directory. To render the entire migration chain without connecting to a database, start from the repository root:
 
 ```powershell
-Push-Location backend
-..\.venv\Scripts\alembic.exe upgrade head --sql > ..\.venv\commercial-upgrade.sql
-Pop-Location
+.\.venv\Scripts\alembic.exe upgrade head --sql > .\.venv\full-upgrade.sql
 ```
 
 Before applying to an existing installation, verify the target and take a restorable backup. From the repository root:
 
 ```powershell
-Push-Location backend
-..\.venv\Scripts\alembic.exe current
-..\.venv\Scripts\alembic.exe upgrade head
-..\.venv\Scripts\alembic.exe current
-Pop-Location
+.\.venv\Scripts\alembic.exe current
+.\.venv\Scripts\alembic.exe upgrade head
+.\.venv\Scripts\alembic.exe current
 ```
 
-The resulting head should be `20260930_0005`. The migration is additive and preserves partner identifiers and historical quote/order monetary snapshots. It maps organizations/capabilities, uses consistent explicit quote evidence to classify legacy opportunities and flags **all legacy opportunities** for commercial review. It does not guess the model from partner type.
+The resulting head should be `20261001_0006`. Revision `0005` is additive and preserves partner identifiers and historical quote/order monetary snapshots. It maps organizations/capabilities, uses consistent explicit quote evidence to classify legacy opportunities and flags **all legacy opportunities** for commercial review. It does not guess the model from partner type.
+
+Revision `0006` creates draft onboarding applications for existing pending Reseller/Referral partners that have a matching primary-contact user, then deactivates users belonging to those applications. Existing active partners are preserved. Review the affected partners and communicate the new document/verification step before rollout. The onboarding migration refuses downgrade because it holds review and verification records; rollback requires restoring the verified backup.
 
 Tier-scoped documents become TCG Internal pending review. Legacy tier adjustments are deactivated, and old commercial rules are not converted into approved new agreements. The migration inserts the initial 10% referral model default. Review capabilities, roles/components and document grants before new commercial actions. Downgrade intentionally refuses destructive reversal; rollback requires a verified backup restoration.
 
-## 4. Seeds and Private Storage
+## 4. Seeds, Private Storage and Delivery Services
 
 After migration, from the repository root:
 
@@ -79,6 +78,14 @@ Seed keys:
 
 Bucket bootstrap creates a missing bucket and reuses an existing one. It does not audit or replace an existing policy; the bucket must remain private.
 
+Production uploads require ClamAV. The API streams each onboarding file to the configured daemon before writing it to MinIO and fails closed if the scanner is unavailable. Production activation email requires a separate worker process using the same database, JWT and SMTP settings as the API:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.services.onboarding_mail
+```
+
+The worker polls the PostgreSQL outbox, retries transient failures and uses row locking so multiple replicas do not process the same row concurrently. SMTP delivery is at least once; monitor failed outbox rows and retain the JWT secret while encrypted payloads are pending.
+
 ## 5. Start and Inspect
 
 From the repository root:
@@ -86,6 +93,8 @@ From the repository root:
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
+
+For an end-to-end onboarding run, start a configured ClamAV daemon and run the mail worker in another terminal. A local environment without `CLAMAV_HOST` records uploads as `NOT_CONFIGURED`; production refuses to start without the scanner and secure SMTP configuration.
 
 In another terminal at the repository root:
 
@@ -103,7 +112,7 @@ npm.cmd --prefix frontend run dev
 | OpenAPI | `http://localhost:8000/openapi.json` |
 | Liveness / readiness | `http://localhost:8000/api/v1/health/live`, `/api/v1/health/ready` |
 
-Readiness checks database/storage; the frontend polls it on System status. Liveness alone does not establish database availability.
+Readiness checks database/storage; the frontend polls it on System status. It does not check ClamAV, SMTP or the mail-worker process, so those dependencies require separate monitoring. Liveness alone does not establish dependency availability.
 
 ## 6. Automated Verification
 
@@ -117,7 +126,7 @@ npm.cmd --prefix frontend run lint
 npm.cmd --prefix frontend run build
 ```
 
-Recorded on 30 September 2026: **55 backend tests passed**, with Ruff, strict Mypy, ESLint and frontend type/build checks passing. Browser tests use mocked APIs; SQL/API tests include isolated SQLite fixtures, which do not prove PostgreSQL concurrency behavior. Fresh/legacy migrations were additionally executed in isolated PGlite PostgreSQL with pgvector omitted only for that harness.
+Recorded on 1 October 2026: **69 backend tests passed**, with Ruff, strict Mypy, ESLint, frontend type/build, onboarding browser checks and standalone workspace checks passing. Browser tests use mocked APIs; SQL/API tests include isolated SQLite fixtures, which do not prove PostgreSQL concurrency or live ClamAV/SMTP behavior. The earlier commercial migration chain was executed in isolated PGlite PostgreSQL with pgvector omitted only for that harness; revision `0006` still requires target-PostgreSQL acceptance.
 
 Optional browser/migration dependencies and commands are documented in [Commercial-Implementation.md](Commercial-Implementation.md#verification). Use an installed Microsoft Edge browser and a running Vite server. Tests make no live payout, provisioning or email calls. Live PostgreSQL/MinIO smoke testing remains necessary.
 
@@ -128,9 +137,10 @@ Use a test environment and approved test data. Do not treat illustrative amounts
 ### Foundation and partner access
 
 1. Verify liveness and database/storage readiness; sign in with the configured seed administrator.
-2. Submit a public application requesting more than one capability; confirm only successful submission shows a reference.
-3. Review/approve it as TCG Admin without tier assignment. Create Partner Sales and read-only users.
-4. Verify another partner cannot read/change its resources by ID; verify suspension and account-switch cache clearing.
+2. Submit a Reseller/Referral application with valid company-license, PAN and GSTIN files; confirm signature checks, clean ClamAV status and private MinIO keys.
+3. Resume the draft with applicant credentials, replace one document, submit it, route it as TCG Admin and review it through a separately authenticated Legal account.
+4. Exercise request-changes/resubmission, rejection and approval. Confirm the mail worker delivers the current OTP, expired/incorrect/replayed codes fail, and successful verification activates only the applicant.
+5. Verify admin approval/status endpoints and normal login cannot bypass incomplete onboarding. Verify another partner cannot read/change resources by ID, then check suspension and account-switch cache clearing.
 
 ### Catalog, organization and terms
 
@@ -166,18 +176,40 @@ Use a test environment and approved test data. Do not treat illustrative amounts
 3. Create MAF for a real participating partner on an approved deal. Review, upload `ISSUED_DOCUMENT`, issue and verify protected download/90-day expiry.
 4. Inspect audit records for partner, term, structure, deal, quote, MAF, order and commission actions, including actor and request context.
 
-## 8. Operational Boundaries
+## 8. Kubernetes Production Layout
 
-Amounts remain USD; accepted snapshots never recalculate from new prices. Files must be nonempty and at most 25 MB; download links expire after ten minutes. There is no file malware scanner, scheduled expiry, external event publisher, automated payout or provisioning integration. The dashboard sums latest stored commercial snapshots per opportunity as operational forecasts, not booked revenue.
+The production image is built from the repository root with `docker build -f backend/Dockerfile -t <registry>/partner-portal-api:<tag> .`. One image serves the API, mail worker and migration Job. `deploy/kubernetes/backend-config.yaml` provides ConfigMap/Secret placeholders, `deploy/kubernetes/backend-deployment.yaml` runs the API and mail worker as separate containers in one Pod, and `deploy/kubernetes/clamav.yaml` provides the scanner Deployment and internal Service. ClamAV signatures are ephemeral and refresh whenever its Pod starts. API-Service, migration-Job and Ingress definitions remain to be added. A production release comprises these workloads:
 
-## 9. Troubleshooting
+| Definition | Responsibility | Important configuration |
+| --- | --- | --- |
+| API `Deployment` + `ClusterIP Service` | Runs Uvicorn/FastAPI and handles uploads | Application Secret, port 8000, live/ready probes, trusted proxy headers |
+| Mail-worker `Deployment` | Runs `python -m app.services.onboarding_mail` continuously | Same image, database, JWT and SMTP Secret as the API; no public Service |
+| Migration `Job` | Runs `alembic upgrade head`, seeds and bucket bootstrap once per release | Same image/config; complete before the API/worker rollout |
+| ClamAV `Deployment` + `ClusterIP Service` | Exposes INSTREAM scanning to API Pods on TCP 3310 | Keep internal, update signatures, add startup/readiness checks and suitable memory |
+
+PostgreSQL and MinIO may be managed services or stateful in-cluster workloads with tested persistent volumes and backups. MinIO's presigned-download hostname must be browser reachable. SMTP normally remains an external or shared internal service.
+
+Route `/api` on the portal hostname to the API Service while preserving `/api/v1/...`. Permit at least 12 MB request bodies because onboarding accepts a 10 MB file plus multipart overhead. Use a request timeout long enough for upload, ClamAV scanning and MinIO storage; the frontend currently defaults to 15 seconds. Configure Uvicorn to trust only the Ingress proxy addresses so database-backed IP rate limits see applicant addresses rather than a single proxy address.
+
+Release in this order: build/push the image, back up PostgreSQL, ensure PostgreSQL/MinIO/ClamAV/SMTP are reachable, run the versioned migration Job, inspect its logs and schema head, roll out the API, then roll out the mail worker. Verify `/health/live`, `/health/ready`, a real clean/malicious-file scan path, SMTP delivery, OTP activation and a presigned browser download.
+
+## 9. Operational Boundaries
+
+Amounts remain USD; accepted snapshots never recalculate from new prices. Shared-library/workflow files must be nonempty and at most 25 MB; onboarding documents are limited to 10 MB and production requires a clean ClamAV result. Download links expire after ten minutes. There is no scheduled expiry worker, external event publisher, automated payout or provisioning integration. The dashboard sums latest stored commercial snapshots per opportunity as operational forecasts, not booked revenue.
+
+## 10. Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
 | Database connection refused | Configured service/host/port is reachable; confirm the intended target before retrying. |
 | Database does not exist | Provision the named database or correct configuration before Alembic. |
-| Alembic cannot find configuration | Run from `backend` using the root virtual environment. |
+| Alembic cannot find configuration | Run from the repository root using the root `alembic.ini`, or from `backend` using its local configuration. |
 | MinIO readiness failure | S3 endpoint, credentials, TLS setting and private bucket existence; console port is not the API endpoint. |
+| Browser cannot open a download URL | `MINIO_ENDPOINT` in the presigned URL must be resolvable and trusted by the browser, not only by cluster DNS. |
+| Upload returns 413 | Increase the Ingress request-body limit above the 10 MB application limit to allow multipart overhead. |
+| Upload returns scanner 503 | `CLAMAV_HOST`/port, Service connectivity, daemon readiness and virus-signature availability. Production fails closed. |
+| Activation email remains queued | Mail-worker Pod, SMTP/TLS/authentication settings and pending/failed `onboarding_mail` rows. `/health/ready` does not cover these. |
+| Applicants share rate limits | Configure trusted forwarded headers so the API sees the client address instead of the Ingress address. |
 | Empty/missing resolved pricing | Active SKU, effective catalog price, engagement model, partner eligibility and approved term dates. No authoritative prices are seeded. |
 | HTTP 403 | User permission, active partner/capability, participation grant and legal contracting party; a valid ID is insufficient. |
 | Commercial review/version conflict | Resolve legacy structure/reapproval or reload current version before editing. |
@@ -187,6 +219,6 @@ Amounts remain USD; accepted snapshots never recalculate from new prices. Files 
 | MAF cannot issue | Approved request and attachment kind `ISSUED_DOCUMENT`. |
 | No commission accrual | Won plus recorded conversion, agreed snapshot and actual eligible basis are all required. |
 
-## 10. Known Acceptance Refinements
+## 11. Known Acceptance Refinements
 
 [PRD Section 24](PRD.md#24-known-acceptance-refinements) is the maintained list. It includes general deal editing, customer administration/deduplication, fuller document and attachment UI, guided forms, expiry scheduling, quote thresholds and future external integrations. Public testimonials remain illustrative until approved real endorsements are supplied.

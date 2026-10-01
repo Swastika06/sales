@@ -7,8 +7,10 @@ import smtplib
 import ssl
 from datetime import timedelta
 from email.message import EmailMessage
+from typing import NotRequired, TypedDict, cast
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
@@ -19,13 +21,21 @@ from app.services.onboarding import aware, mail_cipher, now
 logger = logging.getLogger(__name__)
 
 
-def send_email(payload: dict) -> None:
+class MailPayload(TypedDict):
+    to: str
+    subject: str
+    body: str
+    otp_hash: NotRequired[str | None]
+
+
+def send_email(payload: MailPayload) -> None:
     message = EmailMessage()
     message["From"] = settings.SMTP_FROM
     message["To"] = payload["to"]
     message["Subject"] = payload["subject"]
     message.set_content(payload["body"])
     context = ssl.create_default_context()
+    client: smtplib.SMTP
     if settings.SMTP_SSL:
         client = smtplib.SMTP_SSL(
             settings.SMTP_HOST, settings.SMTP_PORT, timeout=20, context=context
@@ -40,7 +50,7 @@ def send_email(payload: dict) -> None:
         client.send_message(message)
 
 
-async def deliver_one(session) -> bool:
+async def deliver_one(session: AsyncSession) -> bool:
     if not settings.SMTP_HOST:
         return False
     mail = await session.scalar(
@@ -53,8 +63,15 @@ async def deliver_one(session) -> bool:
     if mail is None:
         return False
     try:
-        payload = json.loads(mail_cipher().decrypt(mail.encrypted_payload.encode()))
+        if mail.encrypted_payload is None:
+            raise ValueError("Pending mail has no encrypted payload")
+        payload = cast(
+            MailPayload,
+            json.loads(mail_cipher().decrypt(mail.encrypted_payload.encode())),
+        )
         application = await session.get(OnboardingApplication, mail.application_id)
+        if application is None:
+            raise ValueError("Mail application no longer exists")
         stale = application.status == "COMPLETED" or (
             mail.kind == "OTP"
             and (
@@ -85,7 +102,7 @@ async def deliver_one(session) -> bool:
     return True
 
 
-async def main():
+async def main() -> None:
     settings.assert_safe_for_production()
     logging.basicConfig(level=logging.INFO)
     if not settings.SMTP_HOST:

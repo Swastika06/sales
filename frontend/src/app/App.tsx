@@ -10,7 +10,6 @@ import "../features/portal/portal.css";
 
 export default function AppShell() {
   return <Routes>
-    <Route path="/login" element={<LoginPage />} />
     <Route element={<PublicLayout />}>
       <Route index element={<HomePage />} />
       <Route path="/partner-with-tcg" element={<PartnershipPage />} />
@@ -18,6 +17,7 @@ export default function AppShell() {
       <Route path="/partner-stories" element={<StoriesPage />} />
       <Route path="/register" element={<JoinPage />} />
       <Route path="/onboarding" element={<ApplicationPage />} />
+      <Route path="/login" element={<LoginPage />} />
     </Route>
     {workspaceRoutes()}
     <Route path="*" element={<Navigate to="/" replace />} />

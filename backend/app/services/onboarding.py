@@ -8,6 +8,7 @@ import socket
 import struct
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePath
+from typing import Any
 from uuid import UUID
 
 import jwt
@@ -71,7 +72,9 @@ def application_token(application: OnboardingApplication) -> str:
     )
 
 
-async def token_application(session: AsyncSession, token: str, *, lock: bool = False):
+async def token_application(
+    session: AsyncSession, token: str, *, lock: bool = False
+) -> OnboardingApplication:
     try:
         claims = jwt.decode(
             token,
@@ -96,8 +99,8 @@ async def audit(
     application: OnboardingApplication,
     action: str,
     actor: User | None = None,
-    detail: dict | None = None,
-):
+    detail: dict[str, Any] | None = None,
+) -> None:
     await record_audit_event(
         session,
         action="ONBOARDING_" + action,
@@ -112,7 +115,9 @@ async def audit(
     )
 
 
-async def limit(session: AsyncSession, scope: str, identity: str, maximum: int, seconds: int):
+async def limit(
+    session: AsyncSession, scope: str, identity: str, maximum: int, seconds: int
+) -> None:
     """Persist attempts before business logic; one database counter across API workers."""
     key = digest(scope + ":" + identity)
     row = await session.scalar(
@@ -146,7 +151,9 @@ async def limit(session: AsyncSession, scope: str, identity: str, maximum: int, 
     await session.commit()
 
 
-async def create_application(session: AsyncSession, partner: Partner, applicant: User):
+async def create_application(
+    session: AsyncSession, partner: Partner, applicant: User
+) -> OnboardingApplication:
     await session.flush()
     application = OnboardingApplication(partner_id=partner.id, applicant_id=applicant.id)
     session.add(application)
@@ -155,7 +162,9 @@ async def create_application(session: AsyncSession, partner: Partner, applicant:
     return application
 
 
-async def latest_documents(session: AsyncSession, application_id: UUID):
+async def latest_documents(
+    session: AsyncSession, application_id: UUID
+) -> list[OnboardingDocument]:
     rows = list(
         await session.scalars(
             select(OnboardingDocument)
@@ -163,14 +172,18 @@ async def latest_documents(session: AsyncSession, application_id: UUID):
             .order_by(OnboardingDocument.revision.desc(), OnboardingDocument.created_at.desc())
         )
     )
-    latest = {}
+    latest: dict[str, OnboardingDocument] = {}
     for row in rows:
         latest.setdefault(row.kind, row)
     return list(latest.values())
 
 
-async def validate_submission(session: AsyncSession, application: OnboardingApplication):
+async def validate_submission(
+    session: AsyncSession, application: OnboardingApplication
+) -> None:
     partner = await session.get(Partner, application.partner_id)
+    if partner is None:
+        raise HTTPException(409, "The application partner no longer exists")
     docs = {doc.kind: doc for doc in await latest_documents(session, application.id)}
     if needs_documents([c.code for c in partner.capabilities]):
         missing = set(DOCUMENT_REQUIREMENTS) - docs.keys()
@@ -182,24 +195,24 @@ async def validate_submission(session: AsyncSession, application: OnboardingAppl
         raise HTTPException(409, "Documents must pass malware scanning before review.")
 
 
-def require_admin(user: User):
+def require_admin(user: User) -> None:
     if not is_tcg_admin(user):
         raise HTTPException(403, "TCG Admin access is required")
 
 
-def require_reviewer(user: User, application: OnboardingApplication):
+def require_reviewer(user: User, application: OnboardingApplication) -> None:
     if "TCG_LEGAL" not in role_codes(user) or application.assigned_to_id != user.id:
         raise HTTPException(403, "Only the assigned legal reviewer can decide this application")
 
 
-def require_staff_view(user: User, application: OnboardingApplication):
+def require_staff_view(user: User, application: OnboardingApplication) -> None:
     if not is_tcg_admin(user) and not (
         "TCG_LEGAL" in role_codes(user) and application.assigned_to_id == user.id
     ):
         raise HTTPException(403, "You cannot access this application")
 
 
-def validate_file(filename: str, data: bytes):
+def validate_file(filename: str, data: bytes) -> str:
     extension = PurePath(filename).suffix.lower()
     if data.startswith(b"%PDF-") and b"%%EOF" in data[-2048:] and extension == ".pdf":
         return "application/pdf"
@@ -254,14 +267,16 @@ async def queue_mail(
     message: str,
     *,
     code: str | None = None,
-):
+) -> None:
     applicant = await session.get(User, application.applicant_id)
+    if applicant is None:
+        raise HTTPException(409, "The application user no longer exists")
     link = (
         settings.PUBLIC_PORTAL_URL.rstrip("/")
         + "/onboarding#token="
         + application_token(application)
     )
-    payload = {
+    payload: dict[str, Any] = {
         "to": applicant.email,
         "subject": "TCG partner application",
         "body": message + "\n\nContinue your application: " + link,
@@ -277,7 +292,7 @@ async def queue_mail(
     session.add(mail)
 
 
-async def queue_otp(session: AsyncSession, application: OnboardingApplication):
+async def queue_otp(session: AsyncSession, application: OnboardingApplication) -> None:
     code = f"{secrets.randbelow(1000000):06d}"
     application.otp_hash = digest(str(application.id) + ":" + code)
     application.otp_expires_at = now() + timedelta(minutes=10)
@@ -294,7 +309,7 @@ async def queue_otp(session: AsyncSession, application: OnboardingApplication):
     )
 
 
-async def activation_guard(session: AsyncSession, partner_id: UUID):
+async def activation_guard(session: AsyncSession, partner_id: UUID) -> None:
     application = await session.scalar(
         select(OnboardingApplication).where(OnboardingApplication.partner_id == partner_id)
     )
@@ -304,7 +319,7 @@ async def activation_guard(session: AsyncSession, partner_id: UUID):
         )
 
 
-def validate_number(kind: str, number: str):
+def validate_number(kind: str, number: str) -> str:
     if kind not in DOCUMENT_REQUIREMENTS:
         raise HTTPException(422, "Unknown document type")
     number = number.strip().upper()

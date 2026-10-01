@@ -59,8 +59,8 @@ export function ApplicationPage() {
         <p>Use the work email and password from your application to resume uploads or enter your activation code.</p>
         <label>Work email<input name="email" type="email" autoComplete="username" required /></label>
         <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
-        <button className="p-button" disabled={busy}>{busy ? "Checkingâ€¦" : "Continue application"}</button>
-      </form> : !application ? <p role="status">Loading applicationâ€¦</p> :
+        <button className="p-button" disabled={busy}>{busy ? "Checking…" : "Continue application"}</button>
+      </form> : !application ? <p role="status">Loading application…</p> :
       <div className="onboarding-form">
         <h2>{application.company_name}</h2><p><strong>Status:</strong> {application.status.replaceAll("_", " ")}</p>
         <p>Application reference: {application.id.slice(0, 8).toUpperCase()}</p>
@@ -77,7 +77,7 @@ export function ApplicationPage() {
         {application.review_comment && <p className="onboarding-note"><strong>Legal feedback:</strong> {application.review_comment}</p>}
         {["DRAFT", "CHANGES_REQUESTED"].includes(application.status) &&
           <form onSubmit={resubmit}><DocumentFields value={documents} onChange={setDocuments} required={application.required_documents} existing={application.documents} disabled={busy} />
-            <button className="p-button" disabled={busy}>{busy ? "Submittingâ€¦" : "Submit for review"}</button></form>}
+            <button className="p-button" disabled={busy}>{busy ? "Submitting…" : "Submit for review"}</button></form>}
         {["PENDING_ADMIN_REVIEW", "LEGAL_REVIEW"].includes(application.status) &&
           <p>Your application is being reviewed. We will email you if changes are needed, or send an activation code after legal approval.</p>}
         {application.status === "PENDING_EMAIL_VERIFICATION" && <>

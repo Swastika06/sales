@@ -1,6 +1,6 @@
 # Partner Portal — Project Memory and Decision Log
 
-Updated **30 September 2026** to reflect the public portal and commercial-model implementation. This log records current decisions; use the linked specifications for full contracts and operating instructions.
+Updated **1 October 2026** to reflect the public portal, commercial-model implementation and document-based partner onboarding. This log records current decisions; use the linked specifications for full contracts and operating instructions.
 
 ## 1. Product Context
 
@@ -8,11 +8,11 @@ TCG Digital supplies mcube and LVA. The public Partner Network introduces its ec
 
 ## 2. Local Development Stack
 
-React/TypeScript/Vite, React Router and TanStack Query connect to FastAPI, SQLAlchemy async sessions, PostgreSQL with pgvector and private MinIO. Infrastructure is managed outside this repository; there are no repository Dockerfiles or Compose configuration. JWT provides API authentication. pgvector availability does not mean AI search is implemented.
+React/TypeScript/Vite, React Router and TanStack Query connect to FastAPI, SQLAlchemy async sessions, PostgreSQL with pgvector and private MinIO. Production onboarding also uses ClamAV, TLS-protected SMTP and a durable mail worker. The repository includes one production backend Dockerfile reused by the API, mail worker and migration Job, plus templates for backend configuration, a combined API/mail-worker Kubernetes Deployment and an internal ClamAV workload/Service. ClamAV signatures are ephemeral and refresh when its Pod starts. Compose, API-Service, migration-Job and Ingress definitions are not yet included. JWT provides API authentication and derives encryption for pending onboarding mail. pgvector availability does not mean AI search is implemented.
 
 ## 3. Delivered Baseline
 
-Phase 0 and the core Phase 1A–1H workflows are implemented in source. The public partner journey and commercial replacement were completed on 30 September 2026. Schema head is `20260930_0005`. Live rollout and stakeholder acceptance remain distinct from source completion.
+Phase 0 and the core Phase 1A–1H workflows are implemented in source. The public partner journey and commercial replacement were completed on 30 September 2026; Legal document review and OTP activation were added on 1 October 2026. Schema head is `20261001_0006`. Live rollout and stakeholder acceptance remain distinct from source completion.
 
 ## 4. Partner Capabilities
 
@@ -108,7 +108,7 @@ Never recalculate historical quotes/orders from current prices. Snapshot, revisi
 
 ## 27. Schema and Seeds
 
-The five revisions cover foundation (`20260922_0001`), legacy partner management (`20260923_0002`), catalog/pricing (`20260923_0003`), sales/content (`20260923_0004`) and the commercial replacement (`20260930_0005`). The latest migration preserves historical monetary values, maps capabilities, classifies only supported quote evidence and flags all legacy opportunities for review. Destructive downgrade is refused.
+The six revisions cover foundation (`20260922_0001`), legacy partner management (`20260923_0002`), catalog/pricing (`20260923_0003`), sales/content (`20260923_0004`), the commercial replacement (`20260930_0005`) and private onboarding/Legal verification (`20261001_0006`). Revision `0005` preserves historical monetary values, maps capabilities, classifies only supported quote evidence and flags all legacy opportunities for review. Revision `0006` migrates pending Reseller/Referral applicants into document collection and deactivates their users pending verification. Destructive downgrade is refused.
 
 Six idempotent seed keys are `foundation-identity-v1`, `phase-1a-partner-master-data-v1`, `phase-1b-product-pricing-v1`, `phase-1-remaining-permissions-v1`, `phase-1-mcube-display-name-v1` and `commercial-model-owner-v1`. The initial 10% referral default is inserted by the commercial migration, not by catalog seeding.
 
@@ -118,7 +118,7 @@ Public routes cover landing, partnership benefits, paths, illustrative stories a
 
 ## 29. Verification Baseline
 
-Recorded on 30 September 2026: 55 backend tests, Ruff, strict Mypy, frontend type/build and ESLint passed. Mocked Edge/Playwright/axe checks passed for public and commercial screens, including responsive widths. Fresh/legacy migration checks passed in isolated PGlite PostgreSQL with the unrelated pgvector extension omitted. These tests do not establish live PostgreSQL/MinIO readiness or complete manual accessibility acceptance.
+Recorded on 1 October 2026: 69 backend tests, Ruff, strict Mypy, frontend type/build, ESLint, onboarding browser checks and embedded-workspace checks passed. The 30 September commercial baseline also passed its isolated PGlite migration checks, but revision `0006` has not been accepted against live PostgreSQL, MinIO, ClamAV or SMTP. Mocked checks do not establish live infrastructure readiness or complete manual accessibility acceptance.
 
 ## 30. Operation and Deployment State
 

@@ -44,7 +44,8 @@ const bundle = await build({
 const scope = "[data-tcg-workspace]";
 const css = postcss.parse(
   fs.readFileSync(path.join(root, "src/styles.css"), "utf8") + "\n" +
-  fs.readFileSync(path.join(root, "src/features/onboarding/onboarding.css"), "utf8")
+  fs.readFileSync(path.join(root, "src/features/onboarding/onboarding.css"), "utf8") + "\n" +
+  fs.readFileSync(path.join(root, "src/features/portal/portal.css"), "utf8")
 );
 css.walkAtRules("import", rule => rule.remove());
 css.walkRules(rule => {

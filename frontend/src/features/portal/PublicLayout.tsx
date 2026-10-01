@@ -7,16 +7,21 @@ const links = [
   ["/partner-levels", "Partnership paths"],
   ["/partner-stories", "Partner testimonials"],
 ];
-export function PublicLayout() {
+interface PublicLayoutProps {
+  embedded?: boolean;
+}
+
+export function PublicLayout({ embedded = false }: PublicLayoutProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
   useEffect(() => {
+    if (embedded) return;
     if (location.hash) {
       requestAnimationFrame(() => document.getElementById(location.hash.slice(1))?.scrollIntoView());
     } else window.scrollTo({ top: 0, behavior: "instant" });
-    const titles: Record<string, string> = { "/": "Grow together", "/partner-with-tcg": "Partner with TCG", "/partner-levels": "Choose your partnership", "/partner-stories": "Partner stories", "/register": "Become a partner" };
+    const titles: Record<string, string> = { "/": "Grow together", "/partner-with-tcg": "Partner with TCG", "/partner-levels": "Choose your partnership", "/partner-stories": "Partner stories", "/register": "Become a partner", "/onboarding": "Application status", "/login": "Partner login" };
     document.title = `${titles[location.pathname] ?? "Welcome"} | TCG Partner Network`;
-  }, [location.pathname, location.hash]);
+  }, [embedded, location.pathname, location.hash]);
   return <div className="portal">
     <a className="p-skip" href="#main-content">Skip to content</a>
     <div className="p-announcement"><span>A shared vision. A world of possibilities.</span><Link to="/partner-with-tcg">Meet the TCG Partner Network <Icon size={14} /></Link></div>

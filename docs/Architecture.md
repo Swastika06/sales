@@ -1,6 +1,6 @@
 # Partner Portal — Architecture
 
-As implemented on 30 September 2026. Business decisions are defined in [Commercial-Model.md](Commercial-Model.md); [Commercial-Implementation.md](Commercial-Implementation.md) records verification and deployment limits.
+As implemented on 1 October 2026. Business decisions are defined in [Commercial-Model.md](Commercial-Model.md); [Commercial-Implementation.md](Commercial-Implementation.md) records commercial verification and deployment limits, and [onboarding.md](onboarding.md) records the document-review and activation workflow.
 
 ## 1. Runtime architecture
 
@@ -11,24 +11,27 @@ flowchart LR
     Services --> Calculator[Decimal commercial calculator]
     Services --> DB[(PostgreSQL + pgvector)]
     API --> Storage[Private MinIO storage]
+    API --> Scanner[ClamAV INSTREAM]
+    Worker[Onboarding mail worker] --> DB
+    Worker --> SMTP[SMTP with TLS]
     DB --> Events[Persisted ORDER_CONFIRMED event]
 ```
 
-The frontend uses React 19, TypeScript, Vite, React Router and TanStack Query. The backend uses FastAPI, Pydantic 2, SQLAlchemy 2 async sessions and Alembic. PostgreSQL and MinIO run as externally managed services. pgvector is enabled by the foundation migration; semantic search and RAG are not implemented. External event publication and downstream project creation are also deferred.
+The frontend uses React 19, TypeScript, Vite, React Router and TanStack Query. The backend uses FastAPI, Pydantic 2, SQLAlchemy 2 async sessions and Alembic. PostgreSQL and MinIO remain external runtime dependencies. Production onboarding additionally requires a ClamAV daemon, an SMTP service with TLS and a continuously running mail worker using the same application image and configuration as the API. pgvector is enabled by the foundation migration; semantic search and RAG are not implemented. External event publication and downstream project creation are also deferred.
 
 ## 2. Actual code organization
 
 ```text
 backend/
-  alembic/versions/        Five versioned migrations
+  alembic/versions/        Six versioned migrations
   app/
-    api/v1/endpoints/     Authentication, partners, catalog, sales and commercial APIs
+    api/v1/endpoints/     Authentication, onboarding, partners, catalog, sales and commercial APIs
     core/                 Settings, JWT/security, errors, logging and middleware
     db/                   Metadata, async sessions and idempotent seeds
     domain/               Pure commercial, access, document and workflow rules
-    models/               SQLAlchemy persistence models
+    models/               SQLAlchemy persistence models, including onboarding/outbox state
     schemas/              Pydantic API contracts
-    services/             Pricing, engagement, snapshots, accrual, access and audit
+    services/             Pricing, engagement, onboarding, mail delivery, access and audit
     storage/              MinIO client and bucket bootstrap
   tests/                  Unit and isolated API/database tests
 frontend/
@@ -51,6 +54,7 @@ frontend/
 | Identity | `users`, `roles`, `permissions`, `user_roles`, `role_permissions` |
 | Shared organizations | `organizations`; mappings on `partners`, `customers` and `products.owner_organization_id` |
 | Partner profiles | Existing `partners`, `partner_types` capability catalog, `partner_capabilities`, `countries`, `partner_countries` |
+| Onboarding | `onboarding_applications`, versioned `onboarding_documents`, durable `onboarding_mail`, database-backed `onboarding_rate_limits` |
 | Independent relationships | `vendor_profiles`, `partner_agreements`, `vendor_agreements` |
 | Catalog | `products`, `skus`, `product_prices` |
 | Opportunities | `customers`, `opportunities`, `opportunity_stage_history` |
@@ -73,6 +77,8 @@ Partner opportunity access requires an active partner, a currently approved capa
 Referral users can view their submission/progress and own forecast/accrual, while customer quote/order execution remains with TCG. Partner deal responses redact actual contract values and stage-history notes. Snapshot responses expose only the requesting organization's entitlement. Document downloads and nested attachments repeat authorization checks; linked vendor contracts remain internal and unshared commercial-contract documents are excluded.
 
 Frontend navigation is not a security boundary. Authentication changes clear cached query data so one account cannot inherit another account's cached workspace results.
+
+Reseller and Referral applicants remain inactive until assigned Legal review, document approval and email OTP verification complete. Application tokens are versioned and separate from login JWTs. Normal partner approval, status changes and authentication repeat the activation guard so an incomplete onboarding record cannot be bypassed.
 
 ## 5. Commercial resolution and calculation
 
@@ -102,7 +108,9 @@ Resolution is constrained by engagement model, effective dates and SKU scope. Eq
 
 ## 7. Object storage and API behavior
 
-Uploads pass through the backend, are limited to 25 MB and must be nonempty. PostgreSQL retains metadata, SHA-256 checksum, uploader and private object key. MinIO stores the binary; authorized downloads use ten-minute presigned URLs. The current implementation does not provide malware scanning or a content-type allowlist.
+Shared-library and workflow uploads pass through the backend, are limited to 25 MB and must be nonempty. PostgreSQL retains metadata, SHA-256 checksum, uploader and private object key. MinIO stores the binary; authorized downloads use ten-minute presigned URLs.
+
+Onboarding documents use a separate private model and object-key prefix. Each PDF, PNG or JPEG is limited to 10 MB, checked against its file signature and extension, scanned synchronously through ClamAV INSTREAM, and stored only after a clean scan. Production fails closed when scanning is missing or unavailable. The API readiness endpoint continues to check only PostgreSQL and MinIO, so ClamAV and the mail worker require separate operational monitoring.
 
 Document versions use keys under `documents/{document_id}/v{version}/`; workflow files use the lowercased owner type and owner ID. Document categories and visibility are validated server-side. `PARTNER_TYPE` remains the capability-scope API name; `PARTNER_TIER` is retired.
 
@@ -110,6 +118,6 @@ APIs are under `/api/v1`, with UUIDs, UTC timestamps, request IDs and a common e
 
 ## 8. Migration and operation
 
-Schema head is `20260930_0005`. The additive migration maps existing organizations/capabilities, uses explicit quote evidence to classify legacy opportunities, queues existing opportunities for commercial review, restricts tier-scoped documents and preserves finalized monetary history. New non-review opportunities require a valid engagement model.
+Schema head is `20261001_0006`. Revision `20260930_0005` maps organizations/capabilities, classifies supported legacy evidence, queues existing opportunities for commercial review, restricts tier-scoped documents and preserves finalized monetary history. Revision `20261001_0006` adds onboarding review, versioned private documents, durable mail and rate limiting. It creates draft onboarding records for existing pending Reseller/Referral partners and deactivates their users until review and verification complete. Both migrations refuse destructive downgrade; recovery requires a reviewed backup.
 
 Use the [operations guide](Phase1-Implementation.md) for backup, migration, seed and startup commands. Local isolated tests do not replace target-environment acceptance. Future modules include project delivery, support/SLA, subscriptions, renewals, enablement, analytics and AI search; see [Phases.md](Phases.md).

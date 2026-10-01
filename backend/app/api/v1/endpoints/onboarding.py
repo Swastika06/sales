@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 from datetime import timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
@@ -36,7 +37,9 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-async def locked_application(session: AsyncSession, application_id: UUID):
+async def locked_application(
+    session: AsyncSession, application_id: UUID
+) -> OnboardingApplication:
     application = await session.scalar(
         select(OnboardingApplication)
         .where(OnboardingApplication.id == application_id)
@@ -47,9 +50,15 @@ async def locked_application(session: AsyncSession, application_id: UUID):
     return application
 
 
-async def response(session: AsyncSession, application: OnboardingApplication, *, staff=False):
+async def response(
+    session: AsyncSession, application: OnboardingApplication, *, staff: bool = False
+) -> dict[str, Any]:
     partner = await session.get(Partner, application.partner_id)
     applicant = await session.get(User, application.applicant_id)
+    if partner is None:
+        raise HTTPException(409, "The application partner no longer exists")
+    if applicant is None:
+        raise HTTPException(409, "The application user no longer exists")
     docs = await flow.latest_documents(session, application.id)
     mail = await session.scalar(
         select(OnboardingMail)
@@ -91,7 +100,7 @@ async def response(session: AsyncSession, application: OnboardingApplication, *,
 
 
 @router.get("/requirements")
-async def requirements():
+async def requirements() -> dict[str, Any]:
     return {
         "documents": [
             {"kind": k, "label": v["label"]} for k, v in flow.DOCUMENT_REQUIREMENTS.items()
@@ -105,7 +114,7 @@ async def requirements():
 @router.post("/applications", status_code=201)
 async def create(
     body: PartnerRegistrationRequest, request: Request, session: AsyncSession = Depends(get_db)
-):
+) -> dict[str, Any]:
     await flow.limit(session, "create", client_ip(request), 20, 3600)
     partner, applicant = await create_partner(session, body, created_by=None, activate=False)
     application = await flow.create_application(session, partner, applicant)
@@ -126,7 +135,7 @@ async def create(
 @router.post("/access")
 async def access(
     body: ApplicationAccess, request: Request, session: AsyncSession = Depends(get_db)
-):
+) -> dict[str, Any]:
     await flow.limit(session, "access-ip", client_ip(request), 30, 900)
     await flow.limit(session, "access-email", str(body.email).lower(), 10, 900)
     user = await session.scalar(select(User).where(User.email == str(body.email).lower()))
@@ -146,7 +155,7 @@ async def access(
 @router.get("/me")
 async def applicant_view(
     x_application_token: str = Header(), session: AsyncSession = Depends(get_db)
-):
+) -> dict[str, Any]:
     application = await flow.token_application(session, x_application_token)
     return await response(session, application)
 
@@ -159,7 +168,7 @@ async def upload(
     file: UploadFile = File(...),
     x_application_token: str = Header(),
     session: AsyncSession = Depends(get_db),
-):
+) -> dict[str, Any]:
     await flow.limit(session, "uploads-ip", client_ip(request), 60, 3600)
     application = await flow.token_application(session, x_application_token, lock=True)
     if application.status not in flow.EDITABLE:
@@ -199,7 +208,7 @@ async def applicant_download(
     document_id: UUID,
     x_application_token: str = Header(),
     session: AsyncSession = Depends(get_db),
-):
+) -> dict[str, str]:
     application = await flow.token_application(session, x_application_token)
     document = await session.get(OnboardingDocument, document_id)
     if document is None or document.application_id != application.id:
@@ -214,7 +223,9 @@ async def applicant_download(
 
 
 @router.post("/me/submit")
-async def submit(x_application_token: str = Header(), session: AsyncSession = Depends(get_db)):
+async def submit(
+    x_application_token: str = Header(), session: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
     application = await flow.token_application(session, x_application_token, lock=True)
     if application.status == "PENDING_ADMIN_REVIEW":
         return await response(session, application)
@@ -233,7 +244,7 @@ async def submit(x_application_token: str = Header(), session: AsyncSession = De
 @router.post("/me/resend")
 async def resend(
     request: Request, x_application_token: str = Header(), session: AsyncSession = Depends(get_db)
-):
+) -> dict[str, str]:
     await flow.limit(session, "resend-ip", client_ip(request), 30, 3600)
     application = await flow.token_application(session, x_application_token)
     await flow.limit(session, "resend-application", str(application.id), 5, 3600)
@@ -257,7 +268,7 @@ async def verify(
     request: Request,
     x_application_token: str = Header(),
     session: AsyncSession = Depends(get_db),
-):
+) -> dict[str, str]:
     await flow.limit(session, "verify-ip", client_ip(request), 50, 900)
     application = await flow.token_application(session, x_application_token, lock=True)
     if application.status != "PENDING_EMAIL_VERIFICATION":
@@ -292,6 +303,8 @@ async def verify(
     partner.approved_by_id = application.reviewed_by_id
     partner.code = partner.code or f"PTN-{partner.id.hex[:8].upper()}"
     applicant = await session.get(User, application.applicant_id)
+    if applicant is None:
+        raise HTTPException(409, "The application user no longer exists")
     applicant.is_active = True
     await flow.audit(session, application, "ACTIVATED")
     await session.commit()
@@ -301,7 +314,7 @@ async def verify(
 @router.get("/reviewers")
 async def reviewers(
     user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)
-):
+) -> list[dict[str, Any]]:
     flow.require_admin(user)
     rows = await session.scalars(
         select(User)
@@ -316,7 +329,7 @@ async def create_reviewer(
     body: LegalReviewerCreate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-):
+) -> dict[str, Any]:
     flow.require_admin(user)
     existing = await session.scalar(select(User).where(User.email == str(body.email).lower()))
     if existing is not None:
@@ -351,7 +364,7 @@ async def create_reviewer(
 @router.get("/applications")
 async def applications(
     user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)
-):
+) -> list[dict[str, Any]]:
     query = (
         select(OnboardingApplication).order_by(OnboardingApplication.created_at.desc()).limit(200)
     )
@@ -367,7 +380,7 @@ async def detail(
     application_id: UUID,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-):
+) -> dict[str, Any]:
     application = await locked_application(session, application_id)
     flow.require_staff_view(user, application)
     return await response(session, application, staff=True)
@@ -379,7 +392,7 @@ async def assign(
     body: LegalAssignment,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-):
+) -> dict[str, Any]:
     flow.require_admin(user)
     application = await locked_application(session, application_id)
     if application.status not in {"PENDING_ADMIN_REVIEW", "LEGAL_REVIEW"}:
@@ -403,7 +416,7 @@ async def decision(
     body: LegalDecision,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-):
+) -> dict[str, Any]:
     application = await locked_application(session, application_id)
     flow.require_reviewer(user, application)
     if application.status != "LEGAL_REVIEW" or body.revision != application.revision:
@@ -445,7 +458,7 @@ async def download(
     document_id: UUID,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-):
+) -> dict[str, str]:
     application = await locked_application(session, application_id)
     flow.require_staff_view(user, application)
     document = await session.get(OnboardingDocument, document_id)
@@ -464,7 +477,7 @@ async def start_existing(
     partner_id: UUID,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-):
+) -> dict[str, Any]:
     flow.require_admin(user)
     partner = await load_partner(session, partner_id)
     existing = await session.scalar(
