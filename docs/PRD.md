@@ -123,7 +123,7 @@ Supply approved catalog prices, reseller wholesale terms, SI allocation agreemen
 
 ## 23. Technical Baseline
 
-React/TypeScript/Vite uses React Router and TanStack Query. FastAPI exposes `/api/v1`, JWT authentication and backend authorization. SQLAlchemy async sessions, PostgreSQL/pgvector, Alembic and private MinIO provide persistence; production onboarding adds ClamAV, TLS SMTP and a durable mail worker. The schema head is `20261001_0006`; immutable financial history, onboarding review state and audit records preserve approved outcomes. See [Architecture.md](Architecture.md) for actual entities and transaction boundaries.
+React/TypeScript/Vite uses React Router and TanStack Query. FastAPI exposes `/api/v1`, JWT authentication and backend authorization. SQLAlchemy async sessions, PostgreSQL/pgvector, Alembic and private MinIO provide persistence; onboarding uses mandatory ClamAV scanning in local development and production, while production also requires TLS SMTP and a durable mail worker. The schema head is `20261001_0006`; immutable financial history, onboarding review state and audit records preserve approved outcomes. See [Architecture.md](Architecture.md) for actual entities and transaction boundaries.
 
 ## 24. Known Acceptance Refinements
 

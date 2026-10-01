@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     SMTP_FROM: str = "partners@tcgdigital.com"
     SMTP_STARTTLS: bool = True
     SMTP_SSL: bool = False
-    CLAMAV_HOST: str = ""
+    CLAMAV_HOST: str = "localhost"
     CLAMAV_PORT: int = 3310
 
     JWT_SECRET_KEY: str = Field(
@@ -55,7 +55,9 @@ class Settings(BaseSettings):
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
-    def assert_safe_for_production(self) -> None:
+    def assert_runtime_requirements(self) -> None:
+        if self.APP_ENV != "test" and not self.CLAMAV_HOST:
+            raise ValueError("Configure CLAMAV_HOST for document scanning")
         if self.APP_ENV == "production":
             if self.JWT_SECRET_KEY.startswith("change-me"):
                 raise ValueError("JWT_SECRET_KEY must be replaced in production")
@@ -63,14 +65,12 @@ class Settings(BaseSettings):
                 raise ValueError("PUBLIC_PORTAL_URL must use HTTPS in production")
             if not self.SMTP_HOST or not (self.SMTP_STARTTLS or self.SMTP_SSL):
                 raise ValueError("Configure an SMTP host with TLS for production onboarding")
-            if not self.CLAMAV_HOST:
-                raise ValueError("Configure CLAMAV_HOST for production document scanning")
 
 
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
-    settings.assert_safe_for_production()
+    settings.assert_runtime_requirements()
     return settings
 
 

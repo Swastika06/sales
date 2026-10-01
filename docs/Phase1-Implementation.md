@@ -12,9 +12,9 @@ Commercial terms resolve contract → opportunity → effective partner agreemen
 
 ## 2. Prerequisites and Dependencies
 
-Use Python 3.12+ and Node.js 22+ compatible with the installed dependencies. PostgreSQL and MinIO run outside this repository. The database must exist, and the database account must be able to apply migrations and enable `vector`. Production onboarding also requires a reachable ClamAV daemon supporting INSTREAM on TCP 3310, a TLS-enabled SMTP service, and a continuously running onboarding mail worker.
+Use Python 3.12+ and Node.js 22+ compatible with the installed dependencies. PostgreSQL and MinIO run outside this repository. The database must exist, and the database account must be able to apply migrations and enable `vector`. Local development and production require a reachable ClamAV daemon supporting INSTREAM on TCP 3310. Production onboarding also requires a TLS-enabled SMTP service and a continuously running onboarding mail worker.
 
-Keep the intended root `.env`; create it from `.env.example` only when missing. Verify database, MinIO, JWT, CORS, seed-admin, portal URL, SMTP and ClamAV configuration without committing credentials. Set `SEED_ADMIN_PASSWORD` to at least 12 characters and keep `JWT_SECRET_KEY` stable while onboarding mail is pending because it encrypts queued payloads. Production requires an HTTPS `PUBLIC_PORTAL_URL`, TLS-enabled SMTP and `CLAMAV_HOST`. `MINIO_ENDPOINT` is the S3 host/port, without a scheme/path; it is not the console URL. Presigned downloads use that endpoint, so it must resolve in applicant/admin browsers as well as from the API. Vite reads the root environment. `VITE_PROXY_TARGET` controls the development `/api` proxy; optional `VITE_API_URL` sets the browser API base. Never expose secrets in `VITE_*` variables.
+Keep the intended root `.env`; create it from `.env.example` only when missing. Verify database, MinIO, JWT, CORS, seed-admin, portal URL, SMTP and ClamAV configuration without committing credentials. Local development uses `CLAMAV_HOST=localhost` and `CLAMAV_PORT=3310`; the API rejects an empty scanner host and document uploads fail if the daemon cannot be reached. Set `SEED_ADMIN_PASSWORD` to at least 12 characters and keep `JWT_SECRET_KEY` stable while onboarding mail is pending because it encrypts queued payloads. Production requires an HTTPS `PUBLIC_PORTAL_URL`, TLS-enabled SMTP and a reachable `CLAMAV_HOST`. `MINIO_ENDPOINT` is the S3 host/port, without a scheme/path; it is not the console URL. Presigned downloads use that endpoint, so it must resolve in applicant/admin browsers as well as from the API. Vite reads the root environment. `VITE_PROXY_TARGET` controls the development `/api` proxy; optional `VITE_API_URL` sets the browser API base. Never expose secrets in `VITE_*` variables.
 
 From the repository root:
 
@@ -78,7 +78,7 @@ Seed keys:
 
 Bucket bootstrap creates a missing bucket and reuses an existing one. It does not audit or replace an existing policy; the bucket must remain private.
 
-Production uploads require ClamAV. The API streams each onboarding file to the configured daemon before writing it to MinIO and fails closed if the scanner is unavailable. Production activation email requires a separate worker process using the same database, JWT and SMTP settings as the API:
+All onboarding document uploads require ClamAV. The API streams each file to the configured daemon before writing it to MinIO and fails closed if the scanner is unavailable. Production activation email requires a separate worker process using the same database, JWT and SMTP settings as the API:
 
 ```powershell
 .\.venv\Scripts\python.exe -m app.services.onboarding_mail
@@ -94,7 +94,7 @@ From the repository root:
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
-For an end-to-end onboarding run, start a configured ClamAV daemon and run the mail worker in another terminal. A local environment without `CLAMAV_HOST` records uploads as `NOT_CONFIGURED`; production refuses to start without the scanner and secure SMTP configuration.
+For an end-to-end onboarding run, start ClamAV first and run the mail worker in another terminal. Local development expects ClamAV at `localhost:3310`; the API refuses an empty `CLAMAV_HOST`, and uploads fail closed if the daemon is unavailable. Production additionally refuses to start without secure SMTP configuration.
 
 In another terminal at the repository root:
 
@@ -195,7 +195,7 @@ Release in this order: build/push the image, back up PostgreSQL, ensure PostgreS
 
 ## 9. Operational Boundaries
 
-Amounts remain USD; accepted snapshots never recalculate from new prices. Shared-library/workflow files must be nonempty and at most 25 MB; onboarding documents are limited to 10 MB and production requires a clean ClamAV result. Download links expire after ten minutes. There is no scheduled expiry worker, external event publisher, automated payout or provisioning integration. The dashboard sums latest stored commercial snapshots per opportunity as operational forecasts, not booked revenue.
+Amounts remain USD; accepted snapshots never recalculate from new prices. Shared-library/workflow files must be nonempty and at most 25 MB; onboarding documents are limited to 10 MB and require a clean ClamAV result in every runtime environment. Download links expire after ten minutes. There is no scheduled expiry worker, external event publisher, automated payout or provisioning integration. The dashboard sums latest stored commercial snapshots per opportunity as operational forecasts, not booked revenue.
 
 ## 10. Troubleshooting
 
@@ -207,7 +207,7 @@ Amounts remain USD; accepted snapshots never recalculate from new prices. Shared
 | MinIO readiness failure | S3 endpoint, credentials, TLS setting and private bucket existence; console port is not the API endpoint. |
 | Browser cannot open a download URL | `MINIO_ENDPOINT` in the presigned URL must be resolvable and trusted by the browser, not only by cluster DNS. |
 | Upload returns 413 | Increase the Ingress request-body limit above the 10 MB application limit to allow multipart overhead. |
-| Upload returns scanner 503 | `CLAMAV_HOST`/port, Service connectivity, daemon readiness and virus-signature availability. Production fails closed. |
+| Upload returns scanner 503 | `CLAMAV_HOST`/port, Service connectivity, daemon readiness and virus-signature availability. Local development and production fail closed. |
 | Activation email remains queued | Mail-worker Pod, SMTP/TLS/authentication settings and pending/failed `onboarding_mail` rows. `/health/ready` does not cover these. |
 | Applicants share rate limits | Configure trusted forwarded headers so the API sees the client address instead of the Ingress address. |
 | Empty/missing resolved pricing | Active SKU, effective catalog price, engagement model, partner eligibility and approved term dates. No authoritative prices are seeded. |

@@ -103,7 +103,7 @@ async def deliver_one(session: AsyncSession) -> bool:
 
 
 async def main() -> None:
-    settings.assert_safe_for_production()
+    settings.assert_runtime_requirements()
     logging.basicConfig(level=logging.INFO)
     if not settings.SMTP_HOST:
         logger.warning("SMTP_HOST is unset. Configure SMTP before starting the mail worker.")

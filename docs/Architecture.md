@@ -17,7 +17,7 @@ flowchart LR
     DB --> Events[Persisted ORDER_CONFIRMED event]
 ```
 
-The frontend uses React 19, TypeScript, Vite, React Router and TanStack Query. The backend uses FastAPI, Pydantic 2, SQLAlchemy 2 async sessions and Alembic. PostgreSQL and MinIO remain external runtime dependencies. Production onboarding additionally requires a ClamAV daemon, an SMTP service with TLS and a continuously running mail worker using the same application image and configuration as the API. pgvector is enabled by the foundation migration; semantic search and RAG are not implemented. External event publication and downstream project creation are also deferred.
+The frontend uses React 19, TypeScript, Vite, React Router and TanStack Query. The backend uses FastAPI, Pydantic 2, SQLAlchemy 2 async sessions and Alembic. PostgreSQL, MinIO and ClamAV remain external runtime dependencies in local development and production. Production onboarding additionally requires an SMTP service with TLS and a continuously running mail worker using the same application image and configuration as the API. pgvector is enabled by the foundation migration; semantic search and RAG are not implemented. External event publication and downstream project creation are also deferred.
 
 ## 2. Actual code organization
 
@@ -110,7 +110,7 @@ Resolution is constrained by engagement model, effective dates and SKU scope. Eq
 
 Shared-library and workflow uploads pass through the backend, are limited to 25 MB and must be nonempty. PostgreSQL retains metadata, SHA-256 checksum, uploader and private object key. MinIO stores the binary; authorized downloads use ten-minute presigned URLs.
 
-Onboarding documents use a separate private model and object-key prefix. Each PDF, PNG or JPEG is limited to 10 MB, checked against its file signature and extension, scanned synchronously through ClamAV INSTREAM, and stored only after a clean scan. Production fails closed when scanning is missing or unavailable. The API readiness endpoint continues to check only PostgreSQL and MinIO, so ClamAV and the mail worker require separate operational monitoring.
+Onboarding documents use a separate private model and object-key prefix. Each PDF, PNG or JPEG is limited to 10 MB, checked against its file signature and extension, scanned synchronously through ClamAV INSTREAM, and stored only after a clean scan. Local development and production fail closed when scanning is missing or unavailable. The API readiness endpoint continues to check only PostgreSQL and MinIO, so ClamAV and the mail worker require separate operational monitoring.
 
 Document versions use keys under `documents/{document_id}/v{version}/`; workflow files use the lowercased owner type and owner ID. Document categories and visibility are validated server-side. `PARTNER_TYPE` remains the capability-scope API name; `PARTNER_TIER` is retired.
 

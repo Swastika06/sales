@@ -191,7 +191,7 @@ async def validate_submission(
             raise HTTPException(422, "Upload all required documents: " + ", ".join(sorted(missing)))
         if docs["GSTIN"].number[2:12] != docs["PAN"].number:
             raise HTTPException(422, "The PAN within the GSTIN must match the supplied PAN.")
-    if settings.APP_ENV == "production" and any(d.scan_status != "CLEAN" for d in docs.values()):
+    if any(d.scan_status != "CLEAN" for d in docs.values()):
         raise HTTPException(409, "Documents must pass malware scanning before review.")
 
 
@@ -229,9 +229,7 @@ def validate_file(filename: str, data: bytes) -> str:
 
 def scan_file(data: bytes) -> str:
     if not settings.CLAMAV_HOST:
-        if settings.APP_ENV == "production":
-            raise HTTPException(503, "Document scanning is not configured")
-        return "NOT_CONFIGURED"
+        raise HTTPException(503, "Document scanning is not configured")
     try:
         with socket.create_connection(
             (settings.CLAMAV_HOST, settings.CLAMAV_PORT), timeout=30

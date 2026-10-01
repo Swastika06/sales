@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.ext.compiler import compiles
 
 from app.api.v1.endpoints import onboarding as endpoints
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.core.security import create_access_token, hash_password
 from app.db.base import Base
 from app.db.session import get_db
@@ -468,15 +468,17 @@ async def test_resume_rate_limit_and_legal_provisioning(onboarding):
     ).status_code == 201
 
 
-def test_upload_type_checks_and_production_scanning(monkeypatch):
+def test_upload_type_checks_and_required_scanning(monkeypatch):
     assert flow.validate_file("company.pdf", PDF) == "application/pdf"
     with pytest.raises(HTTPException):
         flow.validate_file("company.html", PDF)
-    monkeypatch.setattr(settings, "APP_ENV", "production")
     monkeypatch.setattr(settings, "CLAMAV_HOST", "")
     with pytest.raises(HTTPException) as error:
         flow.scan_file(PDF)
     assert error.value.status_code == 503
+    with pytest.raises(ValueError, match="Configure CLAMAV_HOST"):
+        Settings(APP_ENV="development", CLAMAV_HOST="").assert_runtime_requirements()
+    Settings(APP_ENV="test", CLAMAV_HOST="").assert_runtime_requirements()
 
 
 async def test_applicant_download_is_scoped_to_application(onboarding):

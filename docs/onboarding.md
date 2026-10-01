@@ -51,7 +51,7 @@ For local development, a local SMTP capture server may be configured on port 102
 
 Upload types are checked against their signatures and file extensions; supplied MIME headers are not trusted. Filenames and size are validated, storage keys are random, and downloads use authorized, expiring links. PAN/GSTIN documents are separate from the shared document library.
 
-Set CLAMAV_HOST and CLAMAV_PORT (default 3310) to a ClamAV daemon supporting INSTREAM. Uploads fail closed when a configured scanner is unavailable or detects malware. Production uploads/reviews require scanning. Local development without a scanner records NOT_CONFIGURED, visible to reviewers; configure scanning and reupload before reviewing those documents in production.
+Set `CLAMAV_HOST` and `CLAMAV_PORT` (default 3310) to a ClamAV daemon supporting INSTREAM. ClamAV is mandatory in local development and production; local development uses `localhost:3310`. Uploads fail closed with HTTP 503 when the scanner is missing or unavailable, infected files are rejected, and an application cannot enter review unless every required document has a `CLEAN` scan result.
 
 ## Standalone ezextend integration
 

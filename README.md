@@ -33,7 +33,7 @@ TCG's public Partner Network and authenticated workspace support partner onboard
 
 ## Local setup
 
-Use Python 3.12+ and Node.js 22+ with versions compatible with the installed dependencies. PostgreSQL with pgvector and MinIO are managed outside this repository; no Docker Compose setup is included. A production backend Dockerfile is provided at `backend/Dockerfile`; `deploy/kubernetes` contains backend configuration and combined API/mail-worker Deployment templates. The database must exist and the MinIO bucket must be private. Production onboarding also requires ClamAV and TLS-protected SMTP; local development may omit them with the documented limitations.
+Use Python 3.12+ and Node.js 22+ with versions compatible with the installed dependencies. PostgreSQL with pgvector and MinIO are managed outside this repository; no Docker Compose setup is included. A production backend Dockerfile is provided at `backend/Dockerfile`; `deploy/kubernetes` contains backend configuration and combined API/mail-worker Deployment templates. The database must exist and the MinIO bucket must be private. ClamAV is required for document uploads in local development and production. Local development expects it at `localhost:3310`; production uses the configured scanner Service. Production onboarding also requires TLS-protected SMTP.
 
 Run these commands from the repository root. Keep the existing `.env`; use `.env.example` only to create a missing file. Configure the database, storage, JWT, CORS and seed-admin settings without committing secrets. Set `SEED_ADMIN_PASSWORD` to at least 12 characters before running backend commands.
 
@@ -45,6 +45,14 @@ npm.cmd --prefix frontend ci
 ```
 
 Take and verify a database backup before migrating an existing installation. The root `alembic.ini` points to the backend migration directory. Start the application with three terminals, each opened at the repository root.
+
+Before starting the API, confirm that the local ClamAV daemon is accepting TCP connections:
+
+```powershell
+Test-NetConnection -ComputerName localhost -Port 3310
+```
+
+`TcpTestSucceeded` must be `True`. The API requires `CLAMAV_HOST=localhost` and `CLAMAV_PORT=3310`; uploads fail with HTTP 503 if the daemon is unavailable.
 
 **Terminal 1 — database preparation, storage bootstrap and API**
 
