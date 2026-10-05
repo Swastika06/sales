@@ -30,13 +30,23 @@ spec:
         seccompProfile:
           type: RuntimeDefault
 
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: bi-nodegroup-name
+                operator: In
+                values:
+                - mcube-bi
+
       # Add imagePullSecrets here when YOUR_REGISTRY requires authentication.
-      # imagePullSecrets:
-      #   - name: partner-registry
+      imagePullSecrets:
+        - name: partner-registry
 
       containers:
         - name: api
-          image: YOUR_REGISTRY/partner-portal-api:v1
+          image: 086272791573.dkr.ecr.ap-south-1.amazonaws.com/4500-k8s-qa:partner-portal-v1
           imagePullPolicy: IfNotPresent
           command: ["uvicorn"]
           args:

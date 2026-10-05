@@ -25,11 +25,22 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      imagePullSecrets:
+        - name: mcube-registry-secret
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: bi-nodegroup-name
+                operator: In
+                values:
+                - mcube-bi
       containers:
         - name: clamav
           # Pin the reviewed release rather than using latest/stable in a
           # production deployment. Update this deliberately with test scans.
-          image: clamav/clamav:1.5.4
+          image: 086272791573.dkr.ecr.ap-south-1.amazonaws.com/4500-k8s-qa:clamav
           imagePullPolicy: IfNotPresent
           env:
             - name: CLAMD_CONF_TCPAddr
