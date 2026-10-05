@@ -23,6 +23,7 @@ ROLE_DEFINITIONS = {
     "TCG_ADMIN": "TCG Admin",
     "TCG_LEGAL": "TCG Legal",
     "TCG_SALES": "TCG Sales",
+    "TCG_FINANCE": "TCG Finance",
     "PARTNER_ADMIN": "Partner Admin",
     "PARTNER_SALES": "Partner Sales",
     "PARTNER_PRESALES": "Partner Pre-Sales",
@@ -106,6 +107,16 @@ async def seed_identity(session: AsyncSession) -> None:
         roles[code] = role
 
     await session.flush()
+    roles["TCG_FINANCE"].permissions = [
+        permissions[code]
+        for code in (
+            "partners.view",
+            "catalog.view",
+            "pricing.view",
+            "sales.view",
+            "documents.view",
+        )
+    ]
     roles["TCG_LEGAL"].permissions = [permissions["onboarding.review"]]
     roles["TCG_ADMIN"].permissions = list(permissions.values())
     roles["TCG_SALES"].permissions = [
@@ -167,6 +178,16 @@ async def seed_partner_master_data(session: AsyncSession) -> None:
             session.add(role)
         roles[code] = role
     await session.flush()
+    roles["TCG_FINANCE"].permissions = [
+        permissions[code]
+        for code in (
+            "partners.view",
+            "catalog.view",
+            "pricing.view",
+            "sales.view",
+            "documents.view",
+        )
+    ]
     roles["TCG_LEGAL"].permissions = [permissions["onboarding.review"]]
     roles["TCG_ADMIN"].permissions = list(permissions.values())
     roles["TCG_SALES"].permissions = [

@@ -12,6 +12,7 @@ export interface ReadyResponse {
 }
 
 export interface CurrentUser {
+  must_change_password: boolean;
   id: string;
   email: string;
   full_name: string;

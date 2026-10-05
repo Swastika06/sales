@@ -10,6 +10,8 @@
     "typecheck": "tsc -b --pretty false",
     "sync:widget": "node scripts/sync-onboarding-embed.mjs && node scripts/sync-workspace-embed.mjs",
     "check:onboarding": "node scripts/check-onboarding.mjs",
+    "check:layout": "node scripts/check-workspace-layout.mjs",
+    "check:staff": "node scripts/check-staff-users.mjs",
     "check:widget": "node scripts/check-workspace-widget.mjs"
   },
   "dependencies": {

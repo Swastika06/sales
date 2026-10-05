@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from app.db.session import SessionLocal, close_db
+from app.models.identity import User
 from app.models.onboarding import OnboardingApplication, OnboardingMail
 from app.services.onboarding import aware, mail_cipher, now
 
@@ -26,6 +27,7 @@ class MailPayload(TypedDict):
     subject: str
     body: str
     otp_hash: NotRequired[str | None]
+    credential_hash: NotRequired[str | None]
 
 
 def send_email(payload: MailPayload) -> None:
@@ -69,18 +71,41 @@ async def deliver_one(session: AsyncSession) -> bool:
             MailPayload,
             json.loads(mail_cipher().decrypt(mail.encrypted_payload.encode())),
         )
-        application = await session.get(OnboardingApplication, mail.application_id)
-        if application is None:
-            raise ValueError("Mail application no longer exists")
-        stale = application.status == "COMPLETED" or (
-            mail.kind == "OTP"
-            and (
-                application.status != "PENDING_EMAIL_VERIFICATION"
-                or application.otp_hash != payload.get("otp_hash")
-                or not application.otp_expires_at
-                or aware(application.otp_expires_at) <= now()
+        if mail.kind == "STAFF_PASSWORD":
+            target = await session.get(User, mail.user_id) if mail.user_id else None
+            stale = (
+                target is None
+                or not target.is_active
+                or not target.must_change_password
+                or target.hashed_password != payload.get("credential_hash")
             )
-        )
+        else:
+            application = await session.get(OnboardingApplication, mail.application_id)
+            if application is None:
+                raise ValueError("Mail application no longer exists")
+            stale = (application.status == "COMPLETED" and mail.kind != "PARTNER_PASSWORD") or (
+                mail.kind == "OTP"
+                and (
+                    application.status != "PENDING_EMAIL_VERIFICATION"
+                    or application.otp_hash != payload.get("otp_hash")
+                    or not application.otp_expires_at
+                    or aware(application.otp_expires_at) <= now()
+                )
+            )
+            if mail.kind == "ONBOARDING_PASSWORD":
+                stale = stale or (
+                    application.access_password_hash != payload.get("credential_hash")
+                    or not application.access_expires_at
+                    or aware(application.access_expires_at) <= now()
+                )
+            elif mail.kind == "PARTNER_PASSWORD":
+                applicant = await session.get(User, application.applicant_id)
+                stale = (
+                    application.status != "COMPLETED"
+                    or applicant is None
+                    or not applicant.must_change_password
+                    or applicant.hashed_password != payload.get("credential_hash")
+                )
         if stale:
             mail.status = "CANCELLED"
             mail.encrypted_payload = None

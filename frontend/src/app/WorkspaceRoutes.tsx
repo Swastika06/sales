@@ -13,12 +13,14 @@ import { PartnersPage } from "../pages/PartnersPage";
 import { PricingPage } from "../pages/PricingPage";
 import { ProductsPage } from "../pages/ProductsPage";
 import { RegisterPage } from "../pages/RegisterPage";
+import { StaffUsersPage } from "../pages/StaffUsersPage";
 import { OnboardingReviewPage } from "../pages/OnboardingReviewPage";
 
 // Return route elements so the local app and the embedded widget use the same tree.
-export function workspaceRoutes() {
+export function workspaceRoutes(embedded = false) {
   return <Route element={<ProtectedRoute />}>
-    <Route element={<AppLayout />}>
+    <Route element={<AppLayout embedded={embedded} />}>
+      <Route path="/staff-users" element={<StaffUsersPage />} />
       <Route path="/onboarding-review" element={<OnboardingReviewPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/partners" element={<PartnersPage />} />

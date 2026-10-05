@@ -22,7 +22,7 @@ All six PDFs contain fictional test data, are one page, and are under 3 KB. They
 
 Use a different unused primary-contact email for each application that you can access (or receive through your local SMTP capture server). Enter a company email and a password of at least 12 characters. Website and phone can be left blank. PDFs do not create a partner on their own: enter the company/contact fields, choose the capability, enter each document number, and select the corresponding PDF in its own upload slot.
 
-Submit via the public application form. A TCG admin assigns an active Legal reviewer in Onboarding review. The assigned reviewer approves the fictional documents for the test; the applicant receives and enters the six-digit activation OTP at `/onboarding` and then signs in. The OTP expires after ten minutes. The partner remains pending and its user inactive until activation completes.
+Submit via the public application form without choosing a password. The primary contact receives a temporary onboarding password by email, valid for five days, to sign in at `/onboarding`; there is no reset option. A TCG admin assigns an active Legal reviewer in Onboarding review. The assigned reviewer approves the fictional documents for the test. Approval activates the partner and emails a different temporary Partner Portal password. Sign in at `/login` and change it on first login before accessing the workspace. Rejection emails the reason and keeps Partner Portal access disabled.
 
 ClamAV, private MinIO storage, configured SMTP and the mail worker must be available for the complete test. File checks were verified locally; these samples have not been submitted to the running portal or scanned by its ClamAV service.
 
@@ -44,3 +44,7 @@ Migration 0005 explicitly retains retired commercial rows for audit/review. Remo
 Do not remove partner_types (active capability master), partner_capabilities, partner_countries, permissions, role_permissions, seed_records or alembic_version. Current authorization/seeding uses them. Shared documents/document_versions and onboarding_documents serve distinct workflows. organizations/customers/partners and all current agreement, commercial, ledger, history and event tables retain implementation references; empty tables alone are not evidence that they are unwanted.
 
 The companion database-inventory.json records the actual public table names, migration revision and four candidate row counts. External applications or reporting dependencies were not audited.
+
+## Staff user invitations
+
+Sign in as an administrator and open **Staff users**. Add a user with a name, email, and Finance, Sales, Legal, or Admin role. There is no password field. Check that the temporary login password arrives by email, sign in at `/login`, and set a new password before accessing the workspace. The Legal reviewer shortcut follows the same flow. If delivery fails, use **Send new invitation** before the user's first password change; the old temporary password stops working.

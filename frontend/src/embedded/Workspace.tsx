@@ -35,7 +35,7 @@ function WorkspaceContent({ onExit }: Pick<WorkspaceProps, "onExit">) {
       <Route element={<PublicLayout embedded />}>
         <Route path="/login" element={<LoginPage />} />
       </Route>
-      {workspaceRoutes()}
+      {workspaceRoutes(true)}
       <Route path="/" element={<PublicPage onExit={onExit} />} />
       <Route path="/partner-with-tcg" element={<PublicPage onExit={onExit} />} />
       <Route path="/partner-levels" element={<PublicPage onExit={onExit} />} />

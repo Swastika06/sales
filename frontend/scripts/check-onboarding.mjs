@@ -25,7 +25,13 @@ async function setup(page) {
     const method = route.request().method();
     let data;
     if (path === "/partners/registration-options") data = options;
-    else if (path === "/onboarding/applications" && method === "POST") data = { token: "test-application", application };
+    else if (path === "/onboarding/applications" && method === "POST") {
+      const payload = route.request().postDataJSON();
+      assert.equal("password" in payload, false);
+      assert.deepEqual(payload.capability_codes, ["RESELLER"]);
+      assert.equal(payload.address, "Example Street, Kolkata, 700001");
+      data = { token: "test-application", application };
+    }
     else if (path === "/onboarding/me" || path === "/onboarding/me/submit") {
       if (path.endsWith("/submit")) application.status = "PENDING_ADMIN_REVIEW";
       data = application;
@@ -48,18 +54,18 @@ async function setup(page) {
     else throw new Error("Unexpected API request: " + method + " " + path);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
   });
-  return { uploaded, errors, approve: () => { application.status = "PENDING_EMAIL_VERIFICATION"; } };
+  return { uploaded, errors, approve: () => { application.status = "COMPLETED"; } };
 }
 async function fillRegistration(page) {
   await page.locator('[name="company_name"]').fill("Example Company");
   await page.locator('[name="company_email"]').fill("company@example.com");
   await page.locator('[name="country"]').selectOption("IN");
+  await page.getByLabel("Company address").fill("Example Street, Kolkata, 700001");
+  assert.equal(await page.locator('[name="password"]').count(), 0);
   await page.locator('[name="partner_type_code"]').selectOption("RESELLER");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.locator('[name="primary_contact_name"]').fill("Applicant User");
   await page.locator('[name="primary_contact_email"]').fill("applicant@example.com");
-  await page.locator('[name="password"]').fill("Onboarding-test-password-123");
-  await page.locator('[name="confirm_password"]').fill("Onboarding-test-password-123");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("heading", { name: "Company documents." }).waitFor();
   const fields = page.locator(".onboarding-documents fieldset");
@@ -83,11 +89,9 @@ try {
     assert.deepEqual(state.uploaded, kinds);
     state.approve();
     await page.goto(base + "/onboarding#token=test-application");
-    await page.getByLabel("Activation code").fill("123456");
-    await page.getByRole("button", { name: "Verify and activate" }).click();
-    await page.getByRole("heading", { name: "Your account is ready." }).waitFor();
+    await page.getByRole("link", { name: "Sign in to your workspace" }).waitFor();
     assert.deepEqual(state.errors, []);
-    console.log("Main portal registration and activation passed at width " + width);
+    console.log("Main portal registration and application tracking passed at width " + width);
     await page.close();
   }
   const page = await browser.newPage({ viewport: { width: 375, height: 900 } });
@@ -107,14 +111,55 @@ try {
   state.approve();
   await page.getByRole("link", { name: "Track application" }).click();
   await page.getByLabel("Work email").fill("applicant@example.com");
-  await page.getByLabel("Password", { exact: true }).fill("Onboarding-test-password-123");
+  await page.getByLabel("Temporary onboarding password", { exact: true }).fill("Onboarding-test-password-123");
   await page.getByRole("button", { name: "Continue application" }).click();
-  await page.getByLabel("Activation code").fill("123456");
-  await page.getByRole("button", { name: "Verify and activate" }).click();
-  await page.getByRole("heading", { name: "Your account is ready." }).waitFor();
+  await page.getByRole("link", { name: "Sign in to your workspace" }).waitFor();
   assert.deepEqual(state.errors, []);
-  console.log("Standalone widget registration and activation passed");
+  console.log("Standalone widget registration and application tracking passed");
   await page.close();
+  for (const embedded of [false, true]) {
+    const loginPage = await browser.newPage({ viewport: { width: 375, height: 900 } });
+    const errors = [];
+    loginPage.on("pageerror", error => errors.push(error.message));
+    let changed = false;
+    let portalRequests = 0;
+    await loginPage.route("**/api/v1/**", async route => {
+      const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
+      let data;
+      if (path === "/auth/token") data = { access_token: "temporary-session" };
+      else if (path === "/auth/me") data = { id: "partner-user", full_name: "Applicant User", email: "applicant@example.com", is_active: true, is_superuser: false, partner_id: "partner", roles: ["PARTNER_ADMIN"], permissions: [], must_change_password: !changed };
+      else if (path === "/auth/change-password") {
+        assert.deepEqual(route.request().postDataJSON(), { current_password: "Temporary-credential-123", new_password: "Permanent-credential-456" });
+        changed = true;
+        data = { access_token: "permanent-session" };
+      } else { portalRequests++; data = []; }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
+    });
+    await loginPage.goto(base + "/login");
+    if (embedded) {
+      await loginPage.setContent('<div id="widget"></div>');
+      await loginPage.evaluate(({ api }) => { window.TCG_PARTNER_PORTAL_CONFIG = { apiBaseUrl: api, initialPath: "/login", loadFonts: false }; }, { api: base + "/api/v1" });
+      await loginPage.addScriptTag({ content: bundle.outputFiles[0].text });
+    }
+    await loginPage.getByLabel("Email", { exact: true }).fill("applicant@example.com");
+    await loginPage.getByLabel("Password", { exact: true }).fill("Temporary-credential-123");
+    await loginPage.getByRole("button", { name: "Sign in", exact: true }).click();
+    await loginPage.getByRole("heading", { name: "Set your workspace password." }).waitFor();
+    assert.equal(portalRequests, 0, "No workspace data requested before changing the password");
+    await loginPage.getByLabel("Temporary password", { exact: true }).fill("Temporary-credential-123");
+    await loginPage.getByLabel("New password", { exact: true }).fill("Permanent-credential-456");
+    await loginPage.getByLabel("Confirm new password", { exact: true }).fill("Mismatched-credential-456");
+    await loginPage.getByRole("button", { name: "Change password and continue" }).click();
+    await loginPage.getByRole("alert").filter({ hasText: "Your passwords do not match." }).waitFor();
+    assert.equal(changed, false);
+    await loginPage.getByLabel("Confirm new password", { exact: true }).fill("Permanent-credential-456");
+    await loginPage.getByRole("button", { name: "Change password and continue" }).click();
+    await loginPage.getByRole("heading", { name: "Good to see you, Applicant." }).waitFor();
+    assert.equal(changed, true);
+    assert.deepEqual(errors, []);
+    console.log((embedded ? "Standalone widget" : "Main portal") + " first-login password change passed");
+    await loginPage.close();
+  }
   const admin = await browser.newPage();
   const adminState = await setup(admin);
   await admin.addInitScript(() => localStorage.setItem("partner_portal_token", "test-admin"));

@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.security import hash_password
 from app.domain.access import is_tcg_admin, role_codes
 from app.models.identity import User
 from app.models.onboarding import (
@@ -65,7 +66,9 @@ def application_token(application: OnboardingApplication) -> str:
             "sub": str(application.id),
             "aud": "onboarding",
             "v": application.token_version,
-            "exp": now() + timedelta(days=7),
+            "exp": min(now() + timedelta(days=5), aware(application.access_expires_at))
+            if application.access_expires_at
+            else now() + timedelta(days=5),
         },
         settings.JWT_SECRET_KEY,
         algorithm=settings.JWT_ALGORITHM,
@@ -91,6 +94,8 @@ async def token_application(
     )
     if application is None or claims.get("v") != application.token_version:
         raise HTTPException(401, "Application session expired. Sign in to resume.")
+    if application.access_expires_at and aware(application.access_expires_at) <= now():
+        raise HTTPException(401, "Onboarding access has expired. Contact the partner team.")
     return application
 
 
@@ -162,9 +167,7 @@ async def create_application(
     return application
 
 
-async def latest_documents(
-    session: AsyncSession, application_id: UUID
-) -> list[OnboardingDocument]:
+async def latest_documents(session: AsyncSession, application_id: UUID) -> list[OnboardingDocument]:
     rows = list(
         await session.scalars(
             select(OnboardingDocument)
@@ -178,9 +181,7 @@ async def latest_documents(
     return list(latest.values())
 
 
-async def validate_submission(
-    session: AsyncSession, application: OnboardingApplication
-) -> None:
+async def validate_submission(session: AsyncSession, application: OnboardingApplication) -> None:
     partner = await session.get(Partner, application.partner_id)
     if partner is None:
         raise HTTPException(409, "The application partner no longer exists")
@@ -265,20 +266,24 @@ async def queue_mail(
     message: str,
     *,
     code: str | None = None,
+    portal_login: bool = False,
 ) -> None:
     applicant = await session.get(User, application.applicant_id)
     if applicant is None:
         raise HTTPException(409, "The application user no longer exists")
-    link = (
-        settings.PUBLIC_PORTAL_URL.rstrip("/")
-        + "/onboarding#token="
-        + application_token(application)
-    )
+    link = settings.PUBLIC_PORTAL_URL.rstrip("/") + ("/login" if portal_login else "/onboarding")
     payload: dict[str, Any] = {
         "to": applicant.email,
         "subject": "TCG partner application",
-        "body": message + "\n\nContinue your application: " + link,
+        "body": message
+        + "\n\n"
+        + ("Partner Portal: " if portal_login else "Onboarding portal: ")
+        + link,
     }
+    if kind == "ONBOARDING_PASSWORD":
+        payload["credential_hash"] = application.access_password_hash
+    elif kind == "PARTNER_PASSWORD":
+        payload["credential_hash"] = applicant.hashed_password
     if code:
         payload["otp_hash"] = application.otp_hash
     mail = OnboardingMail(
@@ -326,3 +331,53 @@ def validate_number(kind: str, number: str) -> str:
             422, "Enter a valid " + DOCUMENT_REQUIREMENTS[kind]["label"] + " number."
         )
     return number
+
+
+async def issue_onboarding_password(
+    session: AsyncSession, application: OnboardingApplication
+) -> None:
+    password = secrets.token_urlsafe(16)
+    application.access_password_hash = hash_password(password)
+    application.access_expires_at = now() + timedelta(days=5)
+    await queue_mail(
+        session,
+        application,
+        "ONBOARDING_PASSWORD",
+        "Your partner application has been started. Upload documents and submit for review. "
+        "A decision is expected within five days.\n\n"
+        "Sign in using your work email and this temporary onboarding password: "
+        + password
+        + "\nThis password is valid for five days. There is no password reset option.",
+    )
+
+
+async def approve_partner(session: AsyncSession, application: OnboardingApplication) -> None:
+    from app.models.partner import PartnerStatus
+
+    partner = await session.get(Partner, application.partner_id)
+    applicant = await session.get(User, application.applicant_id)
+    if partner is None or applicant is None or partner.status != PartnerStatus.PENDING_APPROVAL:
+        raise HTTPException(409, "The partner is not awaiting approval")
+    password = secrets.token_urlsafe(16)
+    applicant.hashed_password = hash_password(password)
+    applicant.must_change_password = True
+    applicant.is_active = True
+    partner.status = PartnerStatus.ACTIVE
+    partner.approved_at = application.reviewed_at
+    partner.approved_by_id = application.reviewed_by_id
+    partner.code = partner.code or f"PTN-{partner.id.hex[:8].upper()}"
+    application.status = "COMPLETED"
+    application.token_version += 1
+    application.access_password_hash = None
+    application.otp_hash = None
+    application.otp_expires_at = None
+    await queue_mail(
+        session,
+        application,
+        "PARTNER_PASSWORD",
+        "Your partner application has been approved.\n\n"
+        "Sign in using your work email and this temporary Partner Portal password: "
+        + password
+        + "\nYou must change this password on your first login before accessing the workspace.",
+        portal_login=True,
+    )

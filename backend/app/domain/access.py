@@ -1,6 +1,6 @@
 from app.models.identity import User
 
-TCG_ROLE_CODES = frozenset({"TCG_ADMIN", "TCG_SALES"})
+TCG_ROLE_CODES = frozenset({"TCG_ADMIN", "TCG_SALES", "TCG_FINANCE"})
 PARTNER_ROLE_CODES = frozenset(
     {"PARTNER_ADMIN", "PARTNER_SALES", "PARTNER_PRESALES", "PARTNER_DELIVERY"}
 )

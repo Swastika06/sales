@@ -34,6 +34,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(200))
     hashed_password: Mapped[str] = mapped_column(String(255))
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     partner_id: Mapped[UUID | None] = mapped_column(

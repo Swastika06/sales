@@ -349,6 +349,7 @@ async def revise_quote(
     session: AsyncSession = Depends(get_db),
 ) -> QuoteRead:
     require_tcg(user)
+    require_sales_manage(user)
     quote = await get_quote(session, quote_id)
     if quote.status != QuoteStatus.FINAL:
         raise HTTPException(status_code=409, detail="Only a final quote can be revised")

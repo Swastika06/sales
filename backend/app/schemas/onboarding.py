@@ -1,7 +1,16 @@
+import secrets
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
+
+from app.schemas.partner import PartnerRegistrationRequest
+
+
+class OnboardingRegistrationRequest(PartnerRegistrationRequest):
+    password: str = Field(
+        default_factory=lambda: secrets.token_urlsafe(24), min_length=12, max_length=128
+    )
 
 
 class ApplicationAccess(BaseModel):
@@ -26,4 +35,4 @@ class ActivationCode(BaseModel):
 class LegalReviewerCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=200)
-    password: str = Field(min_length=12, max_length=128)
+    password: str | None = Field(default=None, min_length=12, max_length=128)

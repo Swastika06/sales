@@ -69,7 +69,7 @@ export function OnboardingReviewPage() {
             </form>}
           {legal && item.assigned_to_id === user?.id && item.status === "LEGAL_REVIEW" &&
             <form className="onboarding-form" onSubmit={event => { event.preventDefault(); void run(() => onboardingRequest(`/applications/${item.id}/decision`, undefined, { decision, comment, revision: item.revision })); }}>
-              <label>Decision<select value={decision} onChange={event => setDecision(event.target.value)}><option value="APPROVE">Approve and email activation code</option><option value="REQUEST_CHANGES">Request document corrections</option><option value="REJECT">Reject application</option></select></label>
+              <label>Decision<select value={decision} onChange={event => setDecision(event.target.value)}><option value="APPROVE">Approve and email Partner Portal password</option><option value="REQUEST_CHANGES">Request document corrections</option><option value="REJECT">Reject application</option></select></label>
               <label>Feedback<textarea value={comment} onChange={event => setComment(event.target.value)} required={decision !== "APPROVE"} minLength={decision !== "APPROVE" ? 3 : undefined} maxLength={2000} /></label>
               <button disabled={busy}>Record decision</button>
             </form>}
@@ -78,10 +78,9 @@ export function OnboardingReviewPage() {
       </section>
     </div>
     {admin && <details className="content-card edit-panel"><summary>Add legal reviewer</summary><form className="compact-form" onSubmit={createReviewer}>
-      <p>Create an internal Legal account. Share credentials through your usual secure channel.</p>
+      <p>Create an internal Legal account. We will email a temporary password that must be changed on first login.</p>
       <label>Full name<input name="full_name" required minLength={2} maxLength={200} /></label>
       <label>Email<input name="email" type="email" required /></label>
-      <label>Password<input name="password" type="password" autoComplete="new-password" required minLength={12} maxLength={128} /></label>
       <button disabled={busy}>Create legal account</button>
     </form></details>}
   </div>;

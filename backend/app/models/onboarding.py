@@ -30,6 +30,8 @@ class OnboardingApplication(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    access_password_hash: Mapped[str | None] = mapped_column(String(255))
+    access_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     otp_hash: Mapped[str | None] = mapped_column(String(64))
     otp_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     otp_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -54,8 +56,11 @@ class OnboardingDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class OnboardingMail(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "onboarding_mail"
-    application_id: Mapped[UUID] = mapped_column(
+    application_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("onboarding_applications.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     kind: Mapped[str] = mapped_column(String(30))
     encrypted_payload: Mapped[str | None] = mapped_column(Text)

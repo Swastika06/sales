@@ -3,7 +3,7 @@ from typing import Any
 from uuid import UUID
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/to
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme), session: AsyncSession = Depends(get_db)
+    request: Request, token: str = Depends(oauth2_scheme), session: AsyncSession = Depends(get_db)
 ) -> User:
     credentials_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -39,6 +39,16 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
         raise credentials_error
+    restricted = payload.get("password_change_required", False)
+    if restricted and not user.must_change_password:
+        raise credentials_error
+    if user.must_change_password and not restricted:
+        raise credentials_error
+    if user.must_change_password and request.url.path not in {
+        settings.API_V1_PREFIX + "/auth/me",
+        settings.API_V1_PREFIX + "/auth/change-password",
+    }:
+        raise HTTPException(403, "Change your temporary password before accessing the portal")
     if user.partner_id:
         from app.models.partner import Partner, PartnerStatus
         from app.services.onboarding import activation_guard

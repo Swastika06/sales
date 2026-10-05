@@ -144,12 +144,7 @@ async def admin_create_partner(
     )
     if requires_review:
         application = await onboarding_flow.create_application(session, partner, primary_user)
-        await onboarding_flow.queue_mail(
-            session,
-            application,
-            "DRAFT",
-            "Please upload your company documents and submit your partner application for review.",
-        )
+        await onboarding_flow.issue_onboarding_password(session, application)
     await record_audit_event(
         session,
         action="PARTNER_CREATED",

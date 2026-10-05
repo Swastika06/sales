@@ -16,7 +16,7 @@ TCG's public Partner Network and authenticated workspace support partner onboard
 | [Public portal](docs/Partner-Portal-UI.md) | Visual identity, registration and illustrative content |
 | [Operations guide](docs/Phase1-Implementation.md) | Setup, migrations, seeds, smoke tests and troubleshooting |
 | [Commercial implementation](docs/Commercial-Implementation.md) | Commercial APIs, migration compatibility and verification harnesses |
-| [Partner onboarding](docs/onboarding.md) | Private uploads, Legal review, SMTP worker, ClamAV and OTP activation |
+| [Partner onboarding](docs/onboarding.md) | Private uploads, Legal review, SMTP worker, ClamAV and emailed temporary passwords |
 | [Decision log](docs/Memory.md) | Current decisions and superseded assumptions |
 | [Delivery phases](docs/Phases.md) | Implemented milestones and deferred work |
 
@@ -29,20 +29,33 @@ TCG's public Partner Network and authenticated workspace support partner onboard
 - Private documents, protected deals, pipeline history, immutable finalized quote revisions, contracting-party acceptance, MAF issuance and quote-based orders.
 - Referral forecasts, conversion-qualified accruals, append-only adjustments and recorded payments. Referral defaults to 10% of explicitly eligible revenue; actual eligibility and settlement policies must be configured.
 - Versioned migration, legacy review queue, backend authorization, audit records and a durable `ORDER_CONFIRMED` integration event.
-- Reseller/Referral document collection, assigned Legal review, durable email delivery and OTP-controlled account activation.
+- Reseller/Referral document collection, assigned Legal review, durable email delivery and mandatory first-login password changes.
 
 ## Local setup
 
-Use Python 3.12+ and Node.js 22+ with versions compatible with the installed dependencies. PostgreSQL with pgvector and MinIO are managed outside this repository; no Docker Compose setup is included. A production backend Dockerfile is provided at `backend/Dockerfile`; `deploy/kubernetes` contains backend configuration and combined API/mail-worker Deployment templates. The database must exist and the MinIO bucket must be private. ClamAV is required for document uploads in local development and production. Local development expects it at `localhost:3310`; production uses the configured scanner Service. Production onboarding also requires TLS-protected SMTP.
+Use Python 3.12+ and Node.js 22+ with versions compatible with the installed dependencies. The current development environment uses Python **3.12.10**; use the same version across the team for a consistent setup. Python 3.11 is below the backend's declared minimum version. PostgreSQL with pgvector and MinIO are managed outside this repository; no Docker Compose setup is included. A production backend Dockerfile is provided at `backend/Dockerfile`; `deploy/kubernetes` contains backend configuration and combined API/mail-worker Deployment templates. The database must exist and the MinIO bucket must be private. ClamAV is required for document uploads in local development and production. Local development expects it at `localhost:3310`; production uses the configured scanner Service. Production onboarding also requires TLS-protected SMTP.
 
 Run these commands from the repository root. Keep the existing `.env`; use `.env.example` only to create a missing file. Configure the database, storage, JWT, CORS and seed-admin settings without committing secrets. Set `SEED_ADMIN_PASSWORD` to at least 12 characters before running backend commands.
 
 ```powershell
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-if (-not (Test-Path .venv)) { python -m venv .venv }
+py -3.12 --version
+if (-not (Test-Path .venv)) { py -3.12 -m venv .venv }
+.\.venv\Scripts\python.exe --version
 .\.venv\Scripts\python.exe -m pip install -e ".\backend[dev]"
 npm.cmd --prefix frontend ci
 ```
+
+Both version checks should report Python 3.12 for the team's current setup. If `py -3.12` fails, install Python 3.12 with the Windows Python launcher before continuing. Installing Python does not replace the interpreter in an existing `.venv`. If the second check reports 3.11, stop the API/mail worker and open a fresh PowerShell terminal at the repository root, then recreate the environment:
+
+```powershell
+Rename-Item -LiteralPath .venv -NewName .venv-py311-backup
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe --version
+.\.venv\Scripts\python.exe -m pip install -e ".\backend[dev]"
+```
+
+The renamed environment is only a backup; do not run it from its new location. Choose a different `.venv-...` backup name if it already exists. In VS Code, select `.venv\Scripts\python.exe` using **Python: Select Interpreter**. Keep `.env` and project files unchanged. See the [operations guide](docs/Phase1-Implementation.md#2-prerequisites-and-dependencies) for version troubleshooting.
 
 Take and verify a database backup before migrating an existing installation. The root `alembic.ini` points to the backend migration directory. Start the application with three terminals, each opened at the repository root.
 
@@ -58,10 +71,10 @@ Test-NetConnection -ComputerName localhost -Port 3310
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-alembic upgrade head
-python -m app.db.seed
-python -m app.storage.bootstrap
-uvicorn app.main:app --reload
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m app.db.seed
+.\.venv\Scripts\python.exe -m app.storage.bootstrap
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
 Run the commands in order. When Uvicorn starts, the API is available at `http://localhost:8000`.
@@ -70,7 +83,7 @@ Run the commands in order. When Uvicorn starts, the API is available at `http://
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python -m backend.app.services.onboarding_mail
+.\.venv\Scripts\python.exe -m app.services.onboarding_mail
 ```
 
 Keep this terminal running so queued onboarding, review and activation emails are delivered. SMTP must be configured in `.env`; without it, the worker remains idle.
@@ -128,7 +141,7 @@ Routes use `/api/v1`, UUID identifiers, UTC timestamps, ISO dates and USD decima
 
 ## Partner onboarding
 
-See [the onboarding setup guide](docs/onboarding.md) for company-document uploads, admin routing, legal review, SMTP configuration, and OTP activation.
+See [the onboarding setup guide](docs/onboarding.md) for company-document uploads, admin routing, legal review, SMTP configuration, and temporary-password login.
 
 ## Standalone ezextend workspace
 

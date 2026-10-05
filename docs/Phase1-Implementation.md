@@ -14,16 +14,31 @@ Commercial terms resolve contract → opportunity → effective partner agreemen
 
 Use Python 3.12+ and Node.js 22+ compatible with the installed dependencies. PostgreSQL and MinIO run outside this repository. The database must exist, and the database account must be able to apply migrations and enable `vector`. Local development and production require a reachable ClamAV daemon supporting INSTREAM on TCP 3310. Production onboarding also requires a TLS-enabled SMTP service and a continuously running onboarding mail worker.
 
+The current development environment uses Python **3.12.10**. Standardize the team's Python version: `backend/pyproject.toml` requires at least 3.12, and the Docker image, Ruff and mypy target 3.12. Python 3.11.9 is outside this project's declared support. Changing only `requires-python` would claim compatibility without testing it.
+
 Keep the intended root `.env`; create it from `.env.example` only when missing. Verify database, MinIO, JWT, CORS, seed-admin, portal URL, SMTP and ClamAV configuration without committing credentials. Local development uses `CLAMAV_HOST=localhost` and `CLAMAV_PORT=3310`; the API rejects an empty scanner host and document uploads fail if the daemon cannot be reached. Set `SEED_ADMIN_PASSWORD` to at least 12 characters and keep `JWT_SECRET_KEY` stable while onboarding mail is pending because it encrypts queued payloads. Production requires an HTTPS `PUBLIC_PORTAL_URL`, TLS-enabled SMTP and a reachable `CLAMAV_HOST`. `MINIO_ENDPOINT` is the S3 host/port, without a scheme/path; it is not the console URL. Presigned downloads use that endpoint, so it must resolve in applicant/admin browsers as well as from the API. Vite reads the root environment. `VITE_PROXY_TARGET` controls the development `/api` proxy; optional `VITE_API_URL` sets the browser API base. Never expose secrets in `VITE_*` variables.
 
 From the repository root:
 
 ```powershell
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-if (-not (Test-Path .venv)) { python -m venv .venv }
+py -3.12 --version
+if (-not (Test-Path .venv)) { py -3.12 -m venv .venv }
+.\.venv\Scripts\python.exe --version
 .\.venv\Scripts\python.exe -m pip install -e ".\backend[dev]"
 npm.cmd --prefix frontend ci
 ```
+
+Both checks should report Python 3.12 for the team's current setup. If the launcher cannot find it, install Python 3.12 with the Windows Python launcher. A pre-existing virtual environment keeps its original interpreter even after another Python version is installed. If `.venv` reports 3.11, stop backend processes and use a fresh PowerShell terminal at the repository root:
+
+```powershell
+Rename-Item -LiteralPath .venv -NewName .venv-py311-backup
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe --version
+.\.venv\Scripts\python.exe -m pip install -e ".\backend[dev]"
+```
+
+Choose another `.venv-...` backup name if the destination exists. The renamed environment is retained only as a backup; virtual environments should be recreated rather than run after moving. Select `.venv\Scripts\python.exe` in the IDE, and launch backend commands through that interpreter as shown below. These steps do not replace `.env` or modify the database. The repository excludes `.venv-...` backups from Git and Docker builds.
 
 ## 3. Database Migration and Legacy Review
 

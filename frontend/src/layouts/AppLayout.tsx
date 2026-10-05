@@ -1,18 +1,23 @@
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { useAuth } from "../features/auth/AuthContext";
 import { Icon, TcgLogo } from "../features/portal/Icons";
 
 function WorkspaceLink({ to, icon, children }: { to: string; icon: string; children: string }) {
-  return <NavLink className={({ isActive }) => isActive ? "active" : undefined} to={to}>
+  return <NavLink aria-label={children} className={({ isActive }) => isActive ? "active" : undefined} to={to}>
     <span className="sidebar-nav-icon"><Icon name={icon} size={17} /></span>
     <span>{children}</span>
   </NavLink>;
 }
 
-export function AppLayout() {
+export function AppLayout({ embedded = false }: { embedded?: boolean }) {
+  const location = useLocation();
+  useEffect(() => {
+    if (!embedded) window.scrollTo({ top: 0, behavior: "instant" });
+  }, [embedded, location.pathname]);
   const { user, logout } = useAuth();
-  const isTcg = user?.is_superuser || user?.roles.some(role => ["TCG_ADMIN", "TCG_SALES"].includes(role));
+  const isTcg = user?.is_superuser || user?.roles.some(role => ["TCG_ADMIN", "TCG_SALES", "TCG_FINANCE"].includes(role));
   const canReview = user?.is_superuser || user?.roles.some(role => ["TCG_ADMIN", "TCG_LEGAL"].includes(role));
   const legalOnly = user?.roles.includes("TCG_LEGAL") && !isTcg;
 
@@ -26,6 +31,7 @@ export function AppLayout() {
         </Link>
         <span className="sidebar-section-label">Workspace</span>
         <nav aria-label="Primary navigation">
+          {(user?.is_superuser || user?.roles.includes("TCG_ADMIN")) && <WorkspaceLink to="/staff-users" icon="people">Staff users</WorkspaceLink>}
           {canReview && <WorkspaceLink to="/onboarding-review" icon="shield">Onboarding review</WorkspaceLink>}
           {!legalOnly && <>
             <WorkspaceLink to="/dashboard" icon="layers">Overview</WorkspaceLink>

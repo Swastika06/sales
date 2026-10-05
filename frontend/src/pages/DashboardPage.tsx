@@ -6,7 +6,7 @@ import { useAuth } from "../features/auth/AuthContext";
 
 export function DashboardPage() {
   const { user } = useAuth();
-  const internal = Boolean(user?.is_superuser || user?.roles.some(r => ["TCG_ADMIN", "TCG_SALES"].includes(r)));
+  const internal = Boolean(user?.is_superuser || user?.roles.some(r => ["TCG_ADMIN", "TCG_SALES", "TCG_FINANCE"].includes(r)));
   const summary = useQuery({ queryKey: ["commercial", "summary"], queryFn: () => commercial<{ basis: string; opportunities: number; totals: Record<string, string>; undisclosed: Record<string, number> }>("/summary"), enabled: internal });
   const isTcgAdmin = user?.roles.includes("TCG_ADMIN");
   if (user?.roles.includes("TCG_LEGAL") && !internal) return <Navigate to="/onboarding-review" replace />;

@@ -54,11 +54,11 @@ export function ApplicationPage() {
     <span className="p-eyebrow">PARTNER APPLICATION</span><h1>{activated ? "Your account is ready." : "Track your application."}</h1>
     {error && <p role="alert" className="p-form-error">{error}</p>}
     {message && <p role="status">{message}</p>}
-    {activated ? <><p>Your email has been verified and your workspace is active.</p><Link className="p-button" to="/login">Sign in</Link></> : !token ?
+    {activated ? <><p>Your email has been verified. Check your email for your temporary Partner Portal password, then change it on your first login.</p><Link className="p-button" to="/login">Sign in</Link></> : !token ?
       <form onSubmit={resume} className="onboarding-form">
-        <p>Use the work email and password from your application to resume uploads or enter your activation code.</p>
+        <p>Use your work email and the temporary onboarding password sent by email. It is valid for five days. There is no password reset option; contact the partner team if you cannot sign in.</p>
         <label>Work email<input name="email" type="email" autoComplete="username" required /></label>
-        <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
+        <label>Temporary onboarding password<input name="password" type="password" autoComplete="current-password" required /></label>
         <button className="p-button" disabled={busy}>{busy ? "Checking…" : "Continue application"}</button>
       </form> : !application ? <p role="status">Loading application…</p> :
       <div className="onboarding-form">
@@ -79,7 +79,7 @@ export function ApplicationPage() {
           <form onSubmit={resubmit}><DocumentFields value={documents} onChange={setDocuments} required={application.required_documents} existing={application.documents} disabled={busy} />
             <button className="p-button" disabled={busy}>{busy ? "Submitting…" : "Submit for review"}</button></form>}
         {["PENDING_ADMIN_REVIEW", "LEGAL_REVIEW"].includes(application.status) &&
-          <p>Your application is being reviewed. We will email you if changes are needed, or send an activation code after legal approval.</p>}
+          <p>Your application is being reviewed. A decision is expected within five days. We will email you if changes are needed, or send a temporary Partner Portal password after approval. You must change it on your first login.</p>}
         {application.status === "PENDING_EMAIL_VERIFICATION" && <>
           <p>Legal has approved your documents. Enter the six-digit code emailed to {application.email}. Codes expire after 10 minutes.</p>
           <form onSubmit={verify}><label>Activation code<input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required /></label>

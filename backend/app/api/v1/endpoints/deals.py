@@ -346,6 +346,7 @@ async def reject_deal(
     session: AsyncSession = Depends(get_db),
 ) -> DealRead:
     require_tcg(user)
+    require_sales_manage(user)
     deal = await get_deal(session, deal_id)
     try:
         ensure_transition(deal.approval_status, DealApprovalStatus.REJECTED, DEAL_TRANSITIONS)

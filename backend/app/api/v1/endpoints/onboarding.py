@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies import get_current_user
-from app.core.security import hash_password, verify_password
+from app.core.security import verify_password
 from app.db.session import get_db
 from app.domain.access import is_tcg_admin, role_codes
 from app.models.identity import Role, User
@@ -22,8 +22,8 @@ from app.schemas.onboarding import (
     LegalAssignment,
     LegalDecision,
     LegalReviewerCreate,
+    OnboardingRegistrationRequest,
 )
-from app.schemas.partner import PartnerRegistrationRequest
 from app.services import onboarding as flow
 from app.services.partners import create_partner, load_partner
 from app.storage.client import presigned_download_url, put_private_object
@@ -37,9 +37,7 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-async def locked_application(
-    session: AsyncSession, application_id: UUID
-) -> OnboardingApplication:
+async def locked_application(session: AsyncSession, application_id: UUID) -> OnboardingApplication:
     application = await session.scalar(
         select(OnboardingApplication)
         .where(OnboardingApplication.id == application_id)
@@ -113,18 +111,16 @@ async def requirements() -> dict[str, Any]:
 
 @router.post("/applications", status_code=201)
 async def create(
-    body: PartnerRegistrationRequest, request: Request, session: AsyncSession = Depends(get_db)
+    body: OnboardingRegistrationRequest, request: Request, session: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     await flow.limit(session, "create", client_ip(request), 20, 3600)
+    # Registration no longer chooses a workspace password.
+    import secrets
+
+    body.password = secrets.token_urlsafe(24)
     partner, applicant = await create_partner(session, body, created_by=None, activate=False)
     application = await flow.create_application(session, partner, applicant)
-    await flow.queue_mail(
-        session,
-        application,
-        "DRAFT",
-        "Your partner application has been started. "
-        "Upload your documents and submit it for review.",
-    )
+    await flow.issue_onboarding_password(session, application)
     await session.commit()
     return {
         "token": flow.application_token(application),
@@ -139,13 +135,24 @@ async def access(
     await flow.limit(session, "access-ip", client_ip(request), 30, 900)
     await flow.limit(session, "access-email", str(body.email).lower(), 10, 900)
     user = await session.scalar(select(User).where(User.email == str(body.email).lower()))
-    if user is None or not verify_password(body.password, user.hashed_password):
-        raise HTTPException(401, "Unable to resume with these credentials")
-    application = await session.scalar(
-        select(OnboardingApplication).where(OnboardingApplication.applicant_id == user.id)
+    application = (
+        await session.scalar(
+            select(OnboardingApplication).where(OnboardingApplication.applicant_id == user.id)
+        )
+        if user
+        else None
     )
-    if application is None:
+    if user is None or application is None or application.status == "COMPLETED":
         raise HTTPException(401, "Unable to resume with these credentials")
+    # Existing applications retain their original password until their five-day window ends.
+    expires = application.access_expires_at or (
+        flow.aware(application.created_at) + timedelta(days=5)
+    )
+    stored_hash = application.access_password_hash or user.hashed_password
+    if flow.aware(expires) <= flow.now() or not verify_password(body.password, stored_hash):
+        raise HTTPException(
+            401, "Invalid or expired onboarding credentials. Contact the partner team."
+        )
     return {
         "token": flow.application_token(application),
         "application": await response(session, application),
@@ -293,22 +300,13 @@ async def verify(
     partner = await load_partner(session, application.partner_id)
     if partner.status != PartnerStatus.PENDING_APPROVAL:
         raise HTTPException(409, "The partner is not awaiting activation")
-    application.status = "COMPLETED"
     application.verified_at = flow.now()
-    application.otp_hash = None
-    application.otp_expires_at = None
-    application.token_version += 1
-    partner.status = PartnerStatus.ACTIVE
-    partner.approved_at = application.reviewed_at
-    partner.approved_by_id = application.reviewed_by_id
-    partner.code = partner.code or f"PTN-{partner.id.hex[:8].upper()}"
-    applicant = await session.get(User, application.applicant_id)
-    if applicant is None:
-        raise HTTPException(409, "The application user no longer exists")
-    applicant.is_active = True
+    await flow.approve_partner(session, application)
     await flow.audit(session, application, "ACTIVATED")
     await session.commit()
-    return {"message": "Account activated. You can now sign in."}
+    return {
+        "message": "Account approved. Check your email for your temporary Partner Portal password."
+    }
 
 
 @router.get("/reviewers")
@@ -330,32 +328,13 @@ async def create_reviewer(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    flow.require_admin(user)
-    existing = await session.scalar(select(User).where(User.email == str(body.email).lower()))
-    if existing is not None:
-        raise HTTPException(
-            409, "This email already has an account; use a distinct legal reviewer email"
-        )
-    role = await session.scalar(select(Role).where(Role.code == "TCG_LEGAL"))
-    if role is None:
-        raise HTTPException(503, "Apply the onboarding migration first")
-    reviewer = User(
-        email=str(body.email).lower(),
-        full_name=body.full_name.strip(),
-        hashed_password=hash_password(body.password),
-        roles=[role],
-        is_active=True,
-    )
-    session.add(reviewer)
-    await session.flush()
-    from app.services.audit import record_audit_event
+    from app.schemas.staff import StaffUserCreate
+    from app.services.staff import create_staff_user
 
-    await record_audit_event(
+    reviewer = await create_staff_user(
         session,
-        action="LEGAL_REVIEWER_CREATED",
-        entity_type="user",
-        entity_id=str(reviewer.id),
-        actor_user_id=user.id,
+        StaffUserCreate(email=body.email, full_name=body.full_name, role_code="TCG_LEGAL"),
+        user,
     )
     await session.commit()
     return {"id": reviewer.id, "name": reviewer.full_name, "email": reviewer.email}
@@ -429,8 +408,7 @@ async def decision(
     application.reviewed_revision = application.revision
     if body.decision == "APPROVE":
         await flow.validate_submission(session, application)
-        application.status = "PENDING_EMAIL_VERIFICATION"
-        await flow.queue_otp(session, application)
+        await flow.approve_partner(session, application)
     elif body.decision == "REQUEST_CHANGES":
         application.status = "CHANGES_REQUESTED"
         await flow.queue_mail(
@@ -506,11 +484,6 @@ async def start_existing(
         application.verified_at = None
         application.review_comment = None
         await flow.audit(session, application, "REOPENED", user)
-    await flow.queue_mail(
-        session,
-        application,
-        "DRAFT",
-        "Please upload your company documents and submit your partner application for review.",
-    )
+    await flow.issue_onboarding_password(session, application)
     await session.commit()
     return await response(session, application, staff=True)

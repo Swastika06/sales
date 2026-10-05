@@ -3,7 +3,7 @@
 import json
 import re
 from datetime import timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -21,7 +21,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models.identity import Role, User
 from app.models.onboarding import OnboardingApplication, OnboardingDocument, OnboardingMail
-from app.models.partner import Country, Partner, PartnerType
+from app.models.partner import Country, PartnerType
 from app.services import onboarding as flow
 from app.services import onboarding_mail as mailer
 
@@ -52,7 +52,7 @@ async def onboarding(monkeypatch):
     async with factory() as session:
         roles = {
             code: Role(code=code, name=code, permissions=[])
-            for code in ["TCG_ADMIN", "TCG_LEGAL", "TCG_SALES", "PARTNER_ADMIN"]
+            for code in ["TCG_ADMIN", "TCG_LEGAL", "TCG_SALES", "TCG_FINANCE", "PARTNER_ADMIN"]
         }
         session.add_all(list(roles.values()))
         session.add(Country(code="IN", name="India"))
@@ -201,41 +201,131 @@ async def test_required_documents_and_file_validation(onboarding):
     assert locked.status_code == 409
 
 
+async def emailed_password(factory, application_id, kind):
+    async with factory() as session:
+        mail = await session.scalar(
+            select(OnboardingMail).where(
+                OnboardingMail.application_id == UUID(application_id), OnboardingMail.kind == kind
+            )
+        )
+        data = json.loads(flow.mail_cipher().decrypt(mail.encrypted_payload.encode()))
+        assert "#token=" not in data["body"]
+        password = re.search(r"password: ([^\s]+)", data["body"]).group(1)
+        assert password not in mail.encrypted_payload
+        return password
+
+
 async def test_workflow_activation_and_replay(onboarding):
     client, factory, ids, _ = onboarding
     application, headers = await draft(client)
+    password = await emailed_password(factory, application["id"], "ONBOARDING_PASSWORD")
+    access = await client.post(
+        "/onboarding/access", json={"email": "applicant@example.com", "password": password}
+    )
+    assert access.status_code == 200
+    assert (
+        await client.post(
+            "/onboarding/access", json={"email": "applicant@example.com", "password": PASSWORD}
+        )
+    ).status_code == 401
+    assert (
+        await client.post(
+            "/auth/token", data={"username": "applicant@example.com", "password": password}
+        )
+    ).status_code == 401
     blocked = await client.post(
         f"/partners/{application['partner_id']}/approve", json={}, headers=auth(ids, "admin")
     )
     assert blocked.status_code == 409
-    login = await client.post(
-        "/auth/token", data={"username": "applicant@example.com", "password": PASSWORD}
-    )
-    assert login.status_code == 401
     application = await send_for_review(client, ids, application, headers)
     result = await approve(client, ids, application)
     assert result.status_code == 200, result.text
-    assert result.json()["status"] == "PENDING_EMAIL_VERIFICATION"
-    assert "otp_hash" not in result.json()
-    code = await otp(factory)
-    async with factory() as session:
-        partner = await session.get(Partner, UUID(application["partner_id"]))
-        assert partner.status == "PENDING_APPROVAL"
-        mails = list(await session.scalars(select(OnboardingMail)))
-        assert all(code not in (mail.encrypted_payload or "") for mail in mails)
-    result = await client.post("/onboarding/me/verify", json={"code": code}, headers=headers)
-    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "COMPLETED"
+    assert "access_password_hash" not in result.json()
+    assert (await client.get("/onboarding/me", headers=headers)).status_code == 401
     assert (
-        await client.post("/onboarding/me/verify", json={"code": code}, headers=headers)
+        await client.post(
+            "/onboarding/access", json={"email": "applicant@example.com", "password": password}
+        )
     ).status_code == 401
+    temporary = await emailed_password(factory, application["id"], "PARTNER_PASSWORD")
+    assert temporary != password
     login = await client.post(
-        "/auth/token", data={"username": "applicant@example.com", "password": PASSWORD}
+        "/auth/token", data={"username": "applicant@example.com", "password": temporary}
     )
     assert login.status_code == 200, login.text
-    me = await client.get(
-        "/auth/me", headers={"Authorization": "Bearer " + login.json()["access_token"]}
+    restricted = {"Authorization": "Bearer " + login.json()["access_token"]}
+    assert (await client.get("/auth/me", headers=restricted)).json()["must_change_password"]
+    assert (await client.get("/partners", headers=restricted)).status_code == 403
+    wrong = await client.post(
+        "/auth/change-password",
+        headers=restricted,
+        json={"current_password": "wrong", "new_password": PASSWORD},
     )
-    assert me.status_code == 200
+    assert wrong.status_code == 401
+    same = await client.post(
+        "/auth/change-password",
+        headers=restricted,
+        json={"current_password": temporary, "new_password": temporary},
+    )
+    assert same.status_code == 422
+    short = await client.post(
+        "/auth/change-password",
+        headers=restricted,
+        json={"current_password": temporary, "new_password": "short"},
+    )
+    assert short.status_code == 422
+    changed = await client.post(
+        "/auth/change-password",
+        headers=restricted,
+        json={"current_password": temporary, "new_password": PASSWORD},
+    )
+    assert changed.status_code == 200, changed.text
+    full = {"Authorization": "Bearer " + changed.json()["access_token"]}
+    assert not (await client.get("/auth/me", headers=full)).json()["must_change_password"]
+    assert (await client.get("/auth/me", headers=restricted)).status_code == 401
+    assert (
+        await client.post(
+            "/auth/token", data={"username": "applicant@example.com", "password": temporary}
+        )
+    ).status_code == 401
+    assert (
+        await client.post(
+            "/auth/token", data={"username": "applicant@example.com", "password": PASSWORD}
+        )
+    ).status_code == 200
+
+
+async def test_onboarding_password_expiry_and_no_reset(onboarding):
+    client, factory, _, _ = onboarding
+    data = payload()
+    data.pop("password")
+    result = await client.post("/onboarding/applications", json=data)
+    assert result.status_code == 201, result.text
+    application = result.json()["application"]
+    password = await emailed_password(factory, application["id"], "ONBOARDING_PASSWORD")
+    headers = {"X-Application-Token": result.json()["token"]}
+    assert (
+        await client.post(
+            "/onboarding/access", json={"email": "applicant@example.com", "password": password}
+        )
+    ).status_code == 200
+    assert (await client.post("/onboarding/me/resend", headers=headers)).status_code == 409
+    async with factory() as session:
+        row = await session.get(OnboardingApplication, UUID(application["id"]))
+        assert (
+            timedelta(days=4, hours=23)
+            < flow.aware(row.access_expires_at) - flow.now()
+            <= timedelta(days=5)
+        )
+        row.access_expires_at = flow.now() - timedelta(seconds=1)
+        await session.commit()
+    assert (
+        await client.post(
+            "/onboarding/access", json={"email": "applicant@example.com", "password": password}
+        )
+    ).status_code == 401
+    assert (await client.get("/onboarding/me", headers=headers)).status_code == 401
 
 
 async def test_role_scope_and_application_tokens(onboarding):
@@ -339,7 +429,12 @@ async def test_otp_limits_expiry_and_resend(onboarding, monkeypatch):
     client, factory, ids, _ = onboarding
     application, headers = await draft(client)
     application = await send_for_review(client, ids, application, headers)
-    await approve(client, ids, application)
+    async with factory() as session:
+        row = await session.get(OnboardingApplication, UUID(application["id"]))
+        row.status = "PENDING_EMAIL_VERIFICATION"
+        row.reviewed_revision = row.revision
+        await flow.queue_otp(session, row)
+        await session.commit()
     old_code = await otp(factory)
     wrong = "000000" if old_code != "000000" else "111111"
     for _ in range(5):
@@ -371,11 +466,9 @@ async def test_otp_limits_expiry_and_resend(onboarding, monkeypatch):
     ).status_code == 422
 
 
-async def test_mail_failures_retry_and_old_codes_are_not_sent(onboarding, monkeypatch):
+async def test_mail_failures_retry_and_stale_passwords_are_not_sent(onboarding, monkeypatch):
     client, factory, ids, _ = onboarding
     application, headers = await draft(client)
-    application = await send_for_review(client, ids, application, headers)
-    await approve(client, ids, application)
     monkeypatch.setattr(settings, "SMTP_HOST", "test.invalid")
 
     def fail(payload):
@@ -384,19 +477,28 @@ async def test_mail_failures_retry_and_old_codes_are_not_sent(onboarding, monkey
     monkeypatch.setattr(mailer, "send_email", fail)
     async with factory() as session:
         assert await mailer.deliver_one(session)
-        row = await session.scalar(select(OnboardingMail).order_by(OnboardingMail.created_at))
+        row = await session.scalar(select(OnboardingMail))
         assert row.status == "PENDING" and row.attempts == 1
         assert row.last_error == "OSError"
+        row.available_at = flow.now() - timedelta(seconds=1)
+        await session.commit()
+    application = await send_for_review(client, ids, application, headers)
+    await approve(client, ids, application)
     sent = []
     monkeypatch.setattr(mailer, "send_email", lambda payload: sent.append(payload))
     async with factory() as session:
-        row = await session.get(OnboardingApplication, UUID(application["id"]))
-        row.otp_expires_at = flow.now() - timedelta(seconds=1)
-        await session.commit()
-        await mailer.deliver_one(session)
-        mail = await session.scalar(select(OnboardingMail).where(OnboardingMail.kind == "OTP"))
-        assert mail.status == "CANCELLED" and mail.encrypted_payload is None
-    assert not sent
+        assert await mailer.deliver_one(session)
+        old = await session.scalar(
+            select(OnboardingMail).where(OnboardingMail.kind == "ONBOARDING_PASSWORD")
+        )
+        assert old.status == "CANCELLED" and old.encrypted_payload is None
+        assert await mailer.deliver_one(session)
+        partner_mail = await session.scalar(
+            select(OnboardingMail).where(OnboardingMail.kind == "PARTNER_PASSWORD")
+        )
+        assert partner_mail.status == "SENT" and partner_mail.encrypted_payload is None
+    assert len(sent) == 1
+    assert "Partner Portal password" in sent[0]["body"]
 
 
 async def test_legacy_and_admin_paths_cannot_bypass_review(onboarding):
@@ -414,8 +516,16 @@ async def test_legacy_and_admin_paths_cannot_bypass_review(onboarding):
             f"/partners/{partner_id}/status", json={"status": "ACTIVE"}, headers=auth(ids, "admin")
         )
     ).status_code == 409
+    async with factory() as session:
+        application = await session.scalar(
+            select(OnboardingApplication).where(
+                OnboardingApplication.partner_id == UUID(partner_id)
+            )
+        )
+        application_id = str(application.id)
+    password = await emailed_password(factory, application_id, "ONBOARDING_PASSWORD")
     access = await client.post(
-        "/onboarding/access", json={"email": "applicant@example.com", "password": PASSWORD}
+        "/onboarding/access", json={"email": "applicant@example.com", "password": password}
     )
     assert access.status_code == 200
     updated = await client.patch(
@@ -519,3 +629,178 @@ async def test_gstin_must_match_pan(onboarding):
     )
     assert result.status_code == 201
     assert (await client.post("/onboarding/me/submit", headers=headers)).status_code == 422
+
+
+@pytest.mark.parametrize("role", ["TCG_FINANCE", "TCG_SALES", "TCG_LEGAL", "TCG_ADMIN"])
+async def test_admin_staff_invitation_and_first_login(onboarding, monkeypatch, role):
+    client, factory, ids, _ = onboarding
+    body = {"email": "newstaff@example.com", "full_name": "New Staff", "role_code": role}
+    for actor in ["sales", "legal"]:
+        assert (
+            await client.post("/staff-users", json=body, headers=auth(ids, actor))
+        ).status_code == 403
+        assert (await client.get("/staff-users", headers=auth(ids, actor))).status_code == 403
+        assert (await client.get("/staff-users/roles", headers=auth(ids, actor))).status_code == 403
+    result = await client.post("/staff-users", json=body, headers=auth(ids, "admin"))
+    assert result.status_code == 201, result.text
+    target = result.json()
+    assert target["roles"] == [role]
+    assert target["must_change_password"] and target["is_active"]
+    assert not target["is_superuser"] and target["partner_id"] is None
+    assert target["mail_status"] == "PENDING"
+    assert "hashed_password" not in target and "password" not in target
+    assert (
+        await client.post("/staff-users", json=body, headers=auth(ids, "admin"))
+    ).status_code == 409
+    sent = []
+    monkeypatch.setattr(settings, "SMTP_HOST", "test.invalid")
+    monkeypatch.setattr(mailer, "send_email", lambda payload: sent.append(payload))
+    async with factory() as session:
+        row = await session.scalar(
+            select(OnboardingMail).where(OnboardingMail.user_id == UUID(target["id"]))
+        )
+        assert row.application_id is None
+        assert await mailer.deliver_one(session)
+        assert row.status == "SENT" and row.encrypted_payload is None
+    assert sent[0]["to"] == body["email"]
+    password = re.search(r"password: ([^\s]+)", sent[0]["body"]).group(1)
+    login = await client.post("/auth/token", data={"username": body["email"], "password": password})
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+    assert (await client.get("/staff-users", headers=headers)).status_code == 403
+    assert (await client.get("/auth/me", headers=headers)).json()["must_change_password"]
+    changed = await client.post(
+        "/auth/change-password",
+        headers=headers,
+        json={"current_password": password, "new_password": PASSWORD},
+    )
+    assert changed.status_code == 200, changed.text
+    full = {"Authorization": "Bearer " + changed.json()["access_token"]}
+    assert not (await client.get("/auth/me", headers=full)).json()["must_change_password"]
+    if role == "TCG_FINANCE":
+        assert (await client.get("/deals", headers=full)).status_code == 200
+        rejected = await client.post(
+            f"/deals/{uuid4()}/reject", headers=full, json={"reason": "Unauthorized finance change"}
+        )
+        revised = await client.post(f"/quotes/{uuid4()}/revise", headers=full)
+        assert rejected.status_code == 403 and revised.status_code == 403
+    assert (await client.get("/staff-users", headers=full)).status_code == (
+        200 if role == "TCG_ADMIN" else 403
+    )
+    assert (await client.get("/auth/me", headers=headers)).status_code == 401
+    assert (
+        await client.post("/auth/token", data={"username": body["email"], "password": password})
+    ).status_code == 401
+    assert (
+        await client.post("/auth/token", data={"username": body["email"], "password": PASSWORD})
+    ).status_code == 200
+
+
+async def test_staff_role_validation_and_legal_shortcut(onboarding):
+    client, factory, ids, _ = onboarding
+    headers = auth(ids, "admin")
+    roles = await client.get("/staff-users/roles", headers=headers)
+    assert {row["code"] for row in roles.json()} == {
+        "TCG_ADMIN",
+        "TCG_FINANCE",
+        "TCG_SALES",
+        "TCG_LEGAL",
+    }
+    body = {"email": "newstaff@example.com", "full_name": "New Staff", "role_code": "PARTNER_ADMIN"}
+    assert (await client.post("/staff-users", json=body, headers=headers)).status_code == 422
+    body["role_code"] = "TCG_FINANCE"
+    body["password"] = PASSWORD
+    assert (await client.post("/staff-users", json=body, headers=headers)).status_code == 422
+    result = await client.post(
+        "/onboarding/reviewers",
+        headers=headers,
+        json={"email": "newlegal@example.com", "full_name": "New Legal"},
+    )
+    assert result.status_code == 201, result.text
+    async with factory() as session:
+        target = await session.get(User, UUID(result.json()["id"]))
+        assert target.must_change_password and target.roles[0].code == "TCG_LEGAL"
+        assert await session.scalar(
+            select(OnboardingMail).where(OnboardingMail.user_id == target.id)
+        )
+
+
+async def test_staff_invitation_retry_and_stale_cancellation(onboarding, monkeypatch):
+    client, factory, ids, _ = onboarding
+    result = await client.post(
+        "/staff-users",
+        headers=auth(ids, "admin"),
+        json={
+            "email": "finance@example.com",
+            "full_name": "Finance User",
+            "role_code": "TCG_FINANCE",
+        },
+    )
+    monkeypatch.setattr(settings, "SMTP_HOST", "test.invalid")
+
+    def fail(payload):
+        raise OSError("SMTP unavailable")
+
+    monkeypatch.setattr(mailer, "send_email", fail)
+    async with factory() as session:
+        assert await mailer.deliver_one(session)
+        row = await session.scalar(select(OnboardingMail))
+        assert row.status == "PENDING" and row.attempts == 1
+        assert row.last_error == "OSError" and row.encrypted_payload
+        row.available_at = flow.now() - timedelta(seconds=1)
+        target = await session.get(User, UUID(result.json()["id"]))
+        target.must_change_password = False
+        await session.commit()
+        assert await mailer.deliver_one(session)
+        assert row.status == "CANCELLED" and row.encrypted_payload is None
+
+
+async def test_admin_can_reissue_pending_staff_invitation(onboarding, monkeypatch):
+    client, factory, ids, _ = onboarding
+    admin = auth(ids, "admin")
+    result = await client.post(
+        "/staff-users",
+        headers=admin,
+        json={
+            "email": "finance@example.com",
+            "full_name": "Finance User",
+            "role_code": "TCG_FINANCE",
+        },
+    )
+    target_id = result.json()["id"]
+    path = f"/staff-users/{target_id}/invitation"
+    async with factory() as session:
+        old_mail = await session.scalar(select(OnboardingMail))
+        old_payload = json.loads(flow.mail_cipher().decrypt(old_mail.encrypted_payload.encode()))
+        old_password = re.search(r"password: ([^\s]+)", old_payload["body"]).group(1)
+    assert (await client.post(path, headers=auth(ids, "sales"))).status_code == 403
+    issued = await client.post(path, headers=admin)
+    assert issued.status_code == 200 and issued.json()["mail_status"] == "PENDING"
+    assert (
+        await client.post(
+            "/auth/token", data={"username": "finance@example.com", "password": old_password}
+        )
+    ).status_code == 401
+    sent = []
+    monkeypatch.setattr(settings, "SMTP_HOST", "test.invalid")
+    monkeypatch.setattr(mailer, "send_email", lambda payload: sent.append(payload))
+    async with factory() as session:
+        assert await mailer.deliver_one(session)
+        old = await session.get(OnboardingMail, old_mail.id)
+        assert old.status == "CANCELLED" and old.encrypted_payload is None
+        assert await mailer.deliver_one(session)
+    assert len(sent) == 1
+    password = re.search(r"password: ([^\s]+)", sent[0]["body"]).group(1)
+    assert password != old_password
+    login = await client.post(
+        "/auth/token", data={"username": "finance@example.com", "password": password}
+    )
+    assert login.status_code == 200
+    restricted = {"Authorization": "Bearer " + login.json()["access_token"]}
+    changed = await client.post(
+        "/auth/change-password",
+        headers=restricted,
+        json={"current_password": password, "new_password": PASSWORD},
+    )
+    assert changed.status_code == 200
+    assert (await client.post(path, headers=admin)).status_code == 409

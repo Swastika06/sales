@@ -395,6 +395,11 @@ td strong, td small { display: block; } td small { margin-top: 3px; color: var(-
 
 .workspace .sidebar {
   z-index: 20;
+  align-self: start;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   padding: 25px 19px 21px;
   color: var(--ink);
   border-right: 1px solid var(--line);
@@ -410,11 +415,12 @@ td strong, td small { display: block; } td small { margin-top: 3px; color: var(-
 .workspace-brand-symbol { display: none; place-items: center; width: 40px; height: 40px; color: #fff; border-radius: 6px; background: #0d6efd; font-family: Manrope, sans-serif; font-weight: 800; }
 .sidebar-section-label { display: block; padding: 17px 14px 9px; color: #93999d; border-top: 1px solid var(--line); font-size: 8px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
 
-.workspace .sidebar nav { gap: 3px; margin-top: 0; }
+.workspace .brand--sidebar, .workspace .sidebar-section-label, .workspace .sidebar-user { flex-shrink: 0; }
+.workspace .sidebar nav { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; align-content: start; gap: 3px; margin-top: 0; }
 .workspace .sidebar nav a { position: relative; display: flex; align-items: center; gap: 12px; min-height: 42px; padding: 9px 12px; color: #58656d; border-radius: 5px; font-size: 12px; font-weight: 500; transition: color .18s, background .18s, transform .18s; }
-.workspace .sidebar nav a:hover { color: #0b5ed7; background: #f5f8fd; transform: translateX(2px); }
+.workspace .sidebar nav a:hover { color: #0b5ed7; background: #f5f8fd; }
 .workspace .sidebar nav a.active { color: #0b5ed7; background: #eef5ff; }
-.workspace .sidebar nav a.active::before { content: ""; position: absolute; left: -19px; top: 8px; bottom: 8px; width: 3px; background: #0d6efd; }
+.workspace .sidebar nav a.active::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; background: #0d6efd; }
 .sidebar-nav-icon { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; color: #718089; border: 1px solid #e3e7e8; border-radius: 5px; background: #fff; }
 .workspace .sidebar nav a.active .sidebar-nav-icon { color: #0d6efd; border-color: #cfe2ff; background: #fff; }
 
@@ -520,7 +526,7 @@ td strong, td small { display: block; } td small { margin-top: 3px; color: var(-
 @media (max-width: 1100px) {
   .workspace { grid-template-columns: 238px minmax(0, 1fr); }
   .workspace .sidebar { padding-inline: 14px; }
-  .workspace .sidebar nav a.active::before { left: -14px; }
+  .workspace .sidebar nav a.active::before { left: 0; }
   .workspace .brand--sidebar .p-brand-logo { width: 120px; }
   .workspace-brand-copy { padding-left: 8px; }
 }
@@ -533,7 +539,7 @@ td strong, td small { display: block; } td small { margin-top: 3px; color: var(-
   .workspace-brand-symbol { display: grid; }
   .workspace .sidebar nav a { justify-content: center; padding-inline: 5px; }
   .workspace .sidebar nav a > span:last-child { display: none; }
-  .workspace .sidebar nav a.active::before { left: -11px; }
+  .workspace .sidebar nav a.active::before { left: 0; }
   .workspace .sidebar-user { display: grid; grid-template-columns: 1fr; justify-items: center; padding-inline: 0; }
   .workspace .sidebar-user > span:not(.avatar) { display: none; }
   .workspace .sidebar-user .button-quiet { justify-self: center; padding-top: 8px; font-size: 9px; }
@@ -547,7 +553,7 @@ td strong, td small { display: block; } td small { margin-top: 3px; color: var(-
   .workspace .brand--sidebar { grid-area: brand; justify-content: flex-start; min-height: 38px; padding: 0; }
   .workspace .brand--sidebar .p-brand-logo { display: block; width: 126px; }
   .workspace-brand-symbol { display: none; }
-  .workspace .sidebar nav { grid-area: nav; display: flex; gap: 7px; margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .workspace .sidebar nav { grid-area: nav; display: flex; flex: none; overflow-x: auto; overflow-y: hidden; gap: 7px; margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line); }
   .workspace .sidebar nav a { flex: 0 0 auto; min-height: 36px; gap: 7px; padding: 5px 10px 5px 6px; font-size: 10px; }
   .workspace .sidebar nav a > span:last-child { display: inline; font-size: 10px; }
   .workspace .sidebar nav a.active::before { display: none; }
