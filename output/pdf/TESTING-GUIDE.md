@@ -20,6 +20,26 @@ All six PDFs contain fictional test data, are one page, and are under 3 KB. They
 | GSTIN number | 19ABCDE1234F1Z5 | 19PQRSX5678K1Z7 |
 | GSTIN upload | reseller-gstin.pdf | referral-gstin.pdf |
 
+### Additional test case (sample set 2)
+
+Use this second, fully fictional pair when the first PAN/GSTIN values have already been used in an onboarding test. The PAN embedded in each GSTIN matches the separate PAN document.
+
+| Form field | Reseller | Referral |
+| --- | --- | --- |
+| Company and legal name | Northstar Reseller Solutions Private Limited | Bluebird Referral Advisors Private Limited |
+| Capability | RESELLER | REFERRAL |
+| Country | India (IN) | India (IN) |
+| Address | 200 Test Park, Bengaluru, Karnataka, India | 300 Example Road, Mumbai, Maharashtra, India |
+| Primary contact name | Northstar Test Contact | Bluebird Test Contact |
+| Company license number | SAMPLE-RES-2026-002 | SAMPLE-REF-2026-002 |
+| Company license upload | reseller-2-company-license.pdf | referral-2-company-license.pdf |
+| PAN number | AABCR2345B | AACCF6789C |
+| PAN upload | reseller-2-pan.pdf | referral-2-pan.pdf |
+| GSTIN number | 29AABCR2345B1ZQ | 27AACCF6789C1ZF |
+| GSTIN upload | reseller-2-gstin.pdf | referral-2-gstin.pdf |
+
+These GSTINs also include internally consistent check characters, although the current portal checks only the GSTIN format and that characters 3-12 match the supplied PAN. Use a new accessible email address for each application.
+
 Use a different unused primary-contact email for each application that you can access (or receive through your local SMTP capture server). Enter a company email and a password of at least 12 characters. Website and phone can be left blank. PDFs do not create a partner on their own: enter the company/contact fields, choose the capability, enter each document number, and select the corresponding PDF in its own upload slot.
 
 Submit via the public application form without choosing a password. The primary contact receives a temporary onboarding password by email, valid for five days, to sign in at `/onboarding`; there is no reset option. A TCG admin assigns an active Legal reviewer in Onboarding review. The assigned reviewer approves the fictional documents for the test. Approval activates the partner and emails a different temporary Partner Portal password. Sign in at `/login` and change it on first login before accessing the workspace. Rejection emails the reason and keeps Partner Portal access disabled.
